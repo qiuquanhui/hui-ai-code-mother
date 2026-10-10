@@ -7,7 +7,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.exception.ErrorCode;
-import com.hui.huiaicodemother.model.dto.UserQueryRequest;
+import com.hui.huiaicodemother.model.dto.user.UserQueryRequest;
 import com.hui.huiaicodemother.model.entity.User;
 import com.hui.huiaicodemother.mapper.UserMapper;
 import com.hui.huiaicodemother.model.enums.UserRoleEnum;

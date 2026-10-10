@@ -1,4 +1,4 @@
-package com.hui.huiaicodemother.model.dto;
+package com.hui.huiaicodemother.model.dto.user;
 
 import com.hui.huiaicodemother.common.PageRequest;
 import lombok.Data;

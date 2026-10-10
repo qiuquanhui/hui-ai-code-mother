@@ -2,7 +2,7 @@ package com.hui.huiaicodemother.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
-import com.hui.huiaicodemother.model.dto.UserQueryRequest;
+import com.hui.huiaicodemother.model.dto.user.UserQueryRequest;
 import com.hui.huiaicodemother.model.entity.User;
 import com.hui.huiaicodemother.model.vo.LoginUserVO;
 import com.hui.huiaicodemother.model.vo.UserVO;

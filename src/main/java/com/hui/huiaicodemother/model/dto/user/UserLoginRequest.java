@@ -1,4 +1,4 @@
-package com.hui.huiaicodemother.model.dto;
+package com.hui.huiaicodemother.model.dto.user;
 
 import lombok.Data;
 

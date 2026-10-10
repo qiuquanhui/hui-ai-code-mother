@@ -1,6 +1,7 @@
 package com.hui.huiaicodemother.controller;
 
 import cn.hutool.core.bean.BeanUtil;
+import com.hui.huiaicodemother.model.dto.user.*;
 import com.mybatisflex.core.paginate.Page;
 import com.hui.huiaicodemother.annotation.AuthCheck;
 import com.hui.huiaicodemother.common.BaseResponse;
@@ -10,7 +11,6 @@ import com.hui.huiaicodemother.constant.UserConstant;
 import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.exception.ErrorCode;
 import com.hui.huiaicodemother.exception.ThrowUtils;
-import com.hui.huiaicodemother.model.dto.*;
 import com.hui.huiaicodemother.model.vo.LoginUserVO;
 import com.hui.huiaicodemother.model.vo.UserVO;
 import jakarta.annotation.Resource;
