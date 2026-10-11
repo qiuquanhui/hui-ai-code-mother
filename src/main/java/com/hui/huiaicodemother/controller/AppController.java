@@ -12,10 +12,7 @@ import com.hui.huiaicodemother.constant.UserConstant;
 import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.exception.ErrorCode;
 import com.hui.huiaicodemother.exception.ThrowUtils;
-import com.hui.huiaicodemother.model.dto.app.AppAddRequest;
-import com.hui.huiaicodemother.model.dto.app.AppAdminUpdateRequest;
-import com.hui.huiaicodemother.model.dto.app.AppQueryRequest;
-import com.hui.huiaicodemother.model.dto.app.AppUpdateRequest;
+import com.hui.huiaicodemother.model.dto.app.*;
 import com.hui.huiaicodemother.model.vo.AppVO;
 import com.hui.huiaicodemother.model.entity.User;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
@@ -51,6 +48,25 @@ public class AppController {
 
     @Resource
     private UserService userService;
+
+    /**
+     * 应用部署
+     *
+     * @param appDeployRequest 部署请求
+     * @param request          请求
+     * @return 部署 URL
+     */
+    @PostMapping("/deploy")
+    public BaseResponse<String> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
+        ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);
+        Long appId = appDeployRequest.getAppId();
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        // 调用服务部署应用
+        String deployUrl = appService.deployApp(appId, loginUser);
+        return ResultUtils.success(deployUrl);
+    }
 
     /**
      * 创建应用
