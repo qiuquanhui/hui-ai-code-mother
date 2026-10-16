@@ -8,7 +8,7 @@
 
 用户输入需求描述并创建应用，通过 AI 对话生成代码，采用流式输出实时展示回复和工具执行过程。后端支持 HTML、多文件网页和 Vue 工程三种生成模式，新应用目前默认使用 Vue 工程模式；对话历史保存在 MySQL，模型上下文通过应用级 Redis 记忆管理。
 
-当前提供静态文件预览和目录复制部署。Vue 工程的自动构建与完整发布、自动生成策略选择和页面元素可视化编辑仍在规划中，具体边界见项目文档。
+当前提供静态文件预览和目录复制部署。Vue 工程生成结束后自动异步构建，部署时构建并发布 `dist`；同一后端进程内，同目录的重叠构建请求会等待并复用结果。构建隔离、版本化发布、自动生成策略选择和页面元素可视化编辑仍待完善，具体边界见项目文档。
 
 ## 项目文档
 
@@ -16,6 +16,7 @@
 - [需求文档](docs/requirements.md)
 - [方案设计](docs/solution-design.md)
 - [项目总结](docs/project-summary.md)
+- [Vue 构建与故障排查](docs/vue-build-troubleshooting.md)
 
 ## 技术栈
 
@@ -38,7 +39,7 @@
 
 ## 快速开始
 
-1. 准备 Java 21、Node.js、MySQL 和 Redis，初始化空数据库：执行 `sql/create_table.sql`（创建库、用户表、应用表和对话历史表；已有数据库需增量迁移）
+1. 准备 Java 21、Node.js（满足平台前端及生成工程各自的版本要求）、MySQL 和 Redis；确保后端进程的 PATH 能找到 `node` 和 `npm`。初始化空数据库：执行 `sql/create_table.sql`（创建库、用户表、应用表和对话历史表；已有数据库需增量迁移）
 2. 新建被 Git 忽略的 `src/main/resources/application-local.yml`，配置数据库、Redis 及 `langchain4j.open-ai.chat-model` / `streaming-chat-model` 的模型地址和密钥；项目默认启用 `local` profile
 3. 启动后端：运行 `HuiAiCodeMotherApplication`，或命令行 `./mvnw spring-boot:run`（Windows：`.\mvnw.cmd spring-boot:run`）
 4. 访问接口文档：http://localhost:8123/api/doc.html
@@ -59,7 +60,7 @@ hui-ai-code-mother
 │   ├── config                 # 全局配置（CORS、JSON 等）
 │   ├── constant               # 常量定义
 │   ├── controller             # 控制器层
-│   ├── core                   # 生成门面、解析器、保存器与流处理器
+│   ├── core                   # 生成门面、解析器、保存器、流处理器与 Vue 构建器
 │   ├── exception              # 异常处理（全局异常、错误码）
 │   ├── generator              # MyBatis-Flex 代码生成器
 │   ├── mapper                 # 数据访问层
