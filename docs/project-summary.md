@@ -1,6 +1,6 @@
 # 项目总结
 
-更新日期：2026-10-16。本总结基于源码、Git 历史和实际检查，不将未执行用例视为验收通过。历史检查保留日期，当前 Vue 构建验证单独记录。
+更新日期：2026-10-19。本总结基于源码、Git 历史和实际检查，不将未执行用例视为验收通过。历史检查保留日期，AI 路由和当前提交前检查单独记录。
 
 ## 1. 阶段成果
 
@@ -11,13 +11,16 @@
 | 用户与权限 | 注册登录、用户管理、Redis Session、管理员注解校验 | [UserServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/UserServiceImpl.java) |
 | 应用管理 | 创建、个人列表、精选列表、编辑、删除与管理员维护 | [AppController](../src/main/java/com/hui/huiaicodemother/controller/AppController.java) |
 | AI 生成 | HTML、多文件、Vue 工程三种后端生成方式 | [AiCodeGeneratorFacade](../src/main/java/com/hui/huiaicodemother/core/AiCodeGeneratorFacade.java) |
+| 需求路由 | 创建应用时用普通模型选择生成类型，对话页和详情展示类型 | [路由服务](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGenTypeRoutingService.java) |
 | 上下文管理 | 应用级 AI Service、Redis 记忆、MySQL 历史恢复、Caffeine 缓存 | [AI 工厂](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGeneratorServiceFactory.java) |
 | 工具过程展示 | 定制流式工具回调，内部消息转成可读文本和代码块 | [JsonMessageStreamHandler](../src/main/java/com/hui/huiaicodemother/core/handler/JsonMessageStreamHandler.java) |
 | 前端交互 | 首页、应用对话、应用信息编辑、三类管理页面 | [路由](../hui-ai-code-mother-frontend/src/router/index.ts) |
 | 产物访问 | Vue 自动构建、dist 预览/部署；静态文件复制部署并记录访问标识 | [AppServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/AppServiceImpl.java) |
 | 构建可靠性 | 同目录重叠构建复用、npm 输出落盘、失败诊断、超时/中断进程清理及六项回归 | [VueProjectBuilder](../src/main/java/com/hui/huiaicodemother/core/builder/VueProjectBuilder.java) |
+| 源码交付 | 创建者下载生成目录 ZIP，过滤依赖、构建产物及指定文件 | [ProjectDownloadServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/ProjectDownloadServiceImpl.java) |
+| 部署封面 | 部署后虚拟线程截取网页，压缩上传 COS 并更新封面，前端处理 URL 协议和卡片加载失败 | [ScreenshotServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/ScreenshotServiceImpl.java) |
 
-Vue 工程默认创建、自动构建、dist 预览和本地静态部署已打通一个博客案例。构建隔离、任务状态、跨进程协调及原子版本发布仍待补齐。
+2026-10-16 在当时固定 Vue 类型的创建流程下，自动构建、dist 预览和本地静态部署已打通一个博客案例。当前创建流程已改为 AI 选择类型；新路由的三条模型调用已验证，应用创建到下载、截图上传的组合链路尚未重新验收。构建隔离、任务状态、跨进程协调及原子版本发布仍待补齐。
 
 ## 2. 最近迭代记录
 
@@ -34,6 +37,8 @@ Vue 工程默认创建、自动构建、dist 预览和本地静态部署已打�
 
 2026-10-16 新增 Vue 构建器及生成完成/部署接入，前端补齐 Vue 类型和 `dist` 预览地址；修复同目录重叠安装风险，并补充构建器回归与故障排查文档。
 
+2026-10-19 新增需求智能路由、创建逻辑下沉到服务层、源码 ZIP 下载、部署后截图上传 COS 和封面展示兼容。排查真实路由测试时，确认 WebDriverManager 间接引入的 Brotli 0.1.2 与 Spring 响应读取组合会截断正文；普通聊天模型指定 gzip 后原测试通过。完整证据见 [AI 路由故障排查](ai-routing-troubleshooting.md)。
+
 ## 3. 关键设计决策与复盘
 
 **应用是上下文和产物的组织单位。** AI 服务缓存键使用应用 ID 和生成类型；模型记忆和生成目录按应用隔离，便于持续修改。仍需补齐应用级并发控制以及删除后的缓存/记忆清理。
@@ -46,7 +51,22 @@ Vue 工程默认创建、自动构建、dist 预览和本地静态部署已打�
 
 **定制依赖实现工具增量输出。** 同包同名 LangChain4j 源码扩展了部分工具回调，但增加了升级维护成本。后续应固定兼容矩阵、补充回归验证，并评估独立补丁或上游扩展点。
 
+**新增依赖可能改变已有客户端行为。** 截图依赖引入 Apache HTTP 和 Brotli 解码后，原有同步模型调用出现 HTTP 200 但正文只剩 `{` 的故障。通过相同输入下对比客户端、压缩设置和读取方式，再检查实际依赖实现，定位到解压与预读的组合问题；使用 gzip 规避后回到原测试确认结果。依赖升级应覆盖这条跨模块回归。
+
 ## 4. 验证记录
+
+### 4.0 2026-10-19：AI 路由与提交前检查
+
+| 检查 | 结果 | 说明 |
+| --- | --- | --- |
+| 原路由测试联网复现 | 修复前首次调用失败；修复后 1 项通过、0 失败/错误 | 三条需求实际返回 `html`、`multi_file`、`vue_project`；测试仅打印结果，没有分类断言 |
+| 客户端、压缩与读取方式对照 | Apache 默认读取只剩 `{`；JDK、identity、禁用压缩、缓冲区循环读取和 gzip 均取得完整响应 | 已确认解压前响应头为 `Content-Encoding: br`，并检查本地 Brotli 0.1.2 实现 |
+| 后端编译及 `VueProjectBuilderTest` | 6 项通过、0 失败/错误 | Java 21 + Maven 3.9.11；首次在沙箱清理系统临时目录时权限失败，指定工作区 `java.io.tmpdir` 后通过 |
+| 平台前端 `npm run build` | 未通过；Vite 打包成功 | 仍为已有 `UserManagePage.vue:139` 的 TS2322，`string` 不能赋值给 `number`；补齐下载图标导入，主 JS 约 2.68 MB |
+| README/docs 本地链接与差异格式 | 109 个本地链接有效，差异无空白错误 | 包括新增排查文档和源码入口链接 |
+| 下载、截图、COS 上传和完整应用创建流程 | 本轮未执行端到端验证 | 以存在对应源码记录功能状态；不运行全量测试，避免额外模型调用、外部站点访问及上传副作用 |
+
+本机 Maven 默认缓存路径和仓库来源标识不匹配，本次使用临时设置匹配现有缓存；该设置及诊断日志保存在被忽略的 `tmp/`，不随源码提交。路由测试命令和配置边界见 [排查文档](ai-routing-troubleshooting.md)。
 
 ### 4.1 2026-10-16：Vue 构建与部署
 
@@ -88,6 +108,9 @@ Vue 工程默认创建、自动构建、dist 预览和本地静态部署已打�
 | P1 | 相同时间戳下仅按时间游标翻页 | 消息可能遗漏；采用时间和 ID 的复合游标 |
 | P1 | 删除只尽力处理数据库历史，无完整资源回收 | 遗留文件、部署站点和记忆；设计补偿与清理任务 |
 | P1 | 固定盐 MD5、宽泛跨域、模型请求/响应日志 | 生产使用前需改进认证配置、来源限制与敏感信息日志策略 |
+| P1 | 创建应用同步依赖 AI 路由，无分类失败兜底 | 模型异常会阻断创建；需补超时体验、失败策略和分类断言 |
+| P1 | 截图共享静态浏览器，异步任务缺少状态、重试与可靠销毁 | 并发截图可能相互影响；应隔离驱动并纳入资源生命周期管理 |
+| P1 | 下载过滤只覆盖指定名称/后缀，无符号链接专门处理 | `.env.local` 等文件未覆盖；需完善目录边界和敏感配置排除验收 |
 | P2 | 应用列表 VO 封装中仍调用逐条用户查询 | 批量查询结果随后覆盖，仍可能出现冗余 N+1；拆分基础 VO 转换 |
 | P2 | SQL 建表非完全幂等、依赖定制缺少专门回归 | 环境迁移与升级不稳定；增量迁移和兼容测试 |
 
@@ -97,6 +120,6 @@ Vue 工程默认创建、自动构建、dist 预览和本地静态部署已打�
 2. 完成文件边界与产物权限控制，保护应用资源隔离。
 3. 在已验证的 Vue 博客案例上完善构建隔离、任务状态、版本化部署及更多资源路径验收。
 4. 完善失败、断连、取消、并发和版本生命周期；补齐核心链路的隔离测试。
-5. 再推进自动生成策略、页面元素编辑、成本配额和运营指标。
+5. 完善已接入的智能路由评估与兜底、源码下载验收和截图任务管理，再推进页面元素编辑、成本配额和运营指标。
 
 验收用例见 [需求文档](requirements.md)，实现细节及部署约束见 [方案设计](solution-design.md)。

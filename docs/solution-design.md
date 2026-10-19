@@ -1,6 +1,6 @@
 # 方案设计
 
-更新日期：2026-10-16。本文按“是什么 → 为什么采用 → 实现思路 → 实现步骤”说明技术方案，重点展开 AI 生成、工具调用、流式响应、对话记忆、登录态和 Vue 构建发布。
+更新日期：2026-10-19。本文按“是什么 → 为什么采用 → 实现思路 → 实现步骤”说明技术方案，重点展开 AI 路由与生成、工具调用、流式响应、对话记忆、登录态、Vue 构建发布、源码下载和部署封面。
 
 文中的“当前实现”均有仓库源码对应；“选型理由”是结合当前需求与代码给出的工程解释；“改进步骤”是后续建议，不能作为已经落地的功能。示例代码是核心逻辑摘录，完整实现以源码链接为准。
 
@@ -34,6 +34,8 @@
 | 会话与记忆 | Spring Session Redis、RedisChatMemoryStore | 登录态共享、模型上下文存储 |
 | 进程内缓存 | Caffeine | 应用级 AI Service 实例缓存 |
 | 文件产物 | 本地文件系统 | 生成源码、复制部署文件 |
+| 源码交付 | Hutool ZIP + Servlet 输出流 | 创建者下载经过过滤的生成目录 |
+| 部署封面 | Selenium 4.33.0、WebDriverManager 6.1.0、腾讯云 COS SDK 5.6.227 | 无头 Chrome 截图、JPEG 压缩、对象存储上传 |
 | 开发工具 | Maven Wrapper 3.9.11、Knife4j、OpenAPI 前端生成 | 构建与接口协作 |
 
 版本来源：[pom.xml](../pom.xml)、[前端 package.json](../hui-ai-code-mother-frontend/package.json)、[Maven Wrapper 配置](../.mvn/wrapper/maven-wrapper.properties)。
@@ -66,10 +68,11 @@ flowchart TD
 ## 2. 代码模块与扩展点
 
 - `controller`：统一接口入口，普通请求返回 `BaseResponse`，生成请求返回 SSE。
-- `service/impl`：应用权限和部署、用户身份、历史持久化与恢复。
+- `service/impl`：应用创建与 AI 路由、权限和部署、源码下载、截图上传、用户身份、历史持久化与恢复。
 - `ai`：AI Service 接口、按应用和生成类型创建服务的工厂、提示词与工具。
 - `core`：生成门面；`parser` 按模式解析；`saver` 使用模板保存；`handler` 统一处理不同流；`builder` 执行 Vue 构建及同目录并发合并。
-- `config`：跨域、Long JSON 字符串序列化、Redis 记忆和 Vue 模型配置。
+- `config`：跨域、Long JSON 字符串序列化、Redis 记忆、Vue 模型和 COS 客户端配置。
+- `manager`、`utils`：COS 对象上传与封面 URL 组装、Chrome 截图和图片压缩。
 - `src/main/java/dev/langchain4j`：与依赖同包同名的定制源码，扩展流式工具调用事件。
 - 前端 `src/api`、`stores`、`pages`：生成的 API 类型/客户端、登录状态、业务页面。
 
@@ -80,7 +83,7 @@ flowchart TD
 | 表 | 关键字段 | 关系与索引 |
 | --- | --- | --- |
 | `user` | `id`、`userAccount`、`userPassword`、`userRole`、用户资料、时间、`isDelete` | 账号唯一；用户名称索引 |
-| `app` | `id`、`appName`、`initPrompt`、`codeGenType`、`userId`、`deployKey`、`deployedTime`、`priority` | 用户拥有多个应用；部署标识唯一；用户及名称索引 |
+| `app` | `id`、`appName`、`initPrompt`、`codeGenType`、`cover`、`userId`、`deployKey`、`deployedTime`、`priority` | 用户拥有多个应用；部署标识唯一；用户及名称索引 |
 | `chat_history` | `id`、`appId`、`userId`、`message`、`messageType`、时间、`isDelete` | 消息属于应用；应用、时间及 `(appId, createTime)` 索引 |
 
 表结构以 [初始化 SQL](../sql/create_table.sql) 为准。关系由业务代码维护，SQL 未声明外键。用户表使用 `if not exists`，应用和历史表没有该条件；初始化脚本不能当作可重复执行的迁移脚本。
@@ -91,7 +94,7 @@ MySQL 对话历史用于界面回放和业务持久化；Redis 保存模型当�
 
 ## 4. 生成与上下文链路
 
-1. `AppController.addApp` 固定设置 `vue_project`，没有需求分类或模型自动选择策略。
+1. `AppController.addApp` 获取登录用户并调用 `AppServiceImpl.createApp`；服务校验需求，调用 `AiCodeGenTypeRoutingService` 返回生成类型，再写入应用记录。路由同步调用普通 `ChatModel`，失败会中断创建，目前没有兜底类型。
 2. `AppServiceImpl.chatToGenCode` 校验应用和创建者，写入本轮用户消息，读取应用生成类型。
 3. 工厂以 `{appId}_{codeGenType}` 为 Caffeine 键，最多缓存 1000 个实例；写入 30 分钟或访问空闲 10 分钟后过期。
 4. 每个实例建立以 `appId` 为 ID、最多 20 条消息的 `MessageWindowChatMemory`，存储于 Redis。记忆键只按应用区分，不按生成类型区分。
@@ -155,6 +158,7 @@ data:
 | `POST /app/my/list/page/vo` | 我的应用 | 登录用户 |
 | `POST /app/good/list/page/vo` | 精选应用 | 公开 |
 | `POST /app/update`、`POST /app/deploy` | 改名、部署 | 创建者 |
+| `GET /app/download/{appId}` | 下载源码 ZIP | 仅创建者，管理员不例外 |
 | `POST /app/delete` | 删除应用 | 创建者或管理员 |
 | `GET /app/chat/gen/code?appId=...&message=...` | SSE 生成 | 创建者 |
 | `GET /chatHistory/app/{appId}` | 游标查询历史 | 创建者或管理员 |
@@ -177,6 +181,26 @@ Vue 工程生成结束后，后端虚拟线程自动执行 `npm install`（300 �
 
 当前安装和构建仍在后端宿主环境运行。后续需迁入隔离构建环境，以版本目录和原子切换保护已有站点。故障证据、恢复步骤及测试见 [Vue 构建与故障排查](vue-build-troubleshooting.md)。
 
+### 8.1 源码 ZIP 下载
+
+`AppController.downloadAppCode` 校验应用存在和创建者身份，定位 `tmp/code_output/{codeGenType}_{appId}`，交给 `ProjectDownloadServiceImpl` 直接写入 Servlet 输出流，响应为 `application/zip`，附件名为 `{appId}.zip`。Vue 下载的是源码目录，部署使用的 `dist` 不包含在压缩包中。
+
+过滤器检查相对路径的每个部分，跳过 `node_modules`、`.git`、`dist`、`build`、`.DS_Store`、`.env`、`target`、`.mvn`、`.idea`、`.vscode`，以及 `.log`、`.tmp`、`.cache` 后缀。当前规则只精确排除 `.env`，不覆盖 `.env.local` 等变体，也未专门处理符号链接；不能把此过滤器视为完整敏感文件审计。
+
+前端下载按钮仅向创建者开放，通过携带 Cookie 的 `fetch` 取得 Blob，再创建临时下载链接。后端权限仍是最终依据；压缩包内容、错误响应与跨域附件名读取尚待端到端验证。
+
+源码：[下载控制器](../src/main/java/com/hui/huiaicodemother/controller/AppController.java)、[ProjectDownloadServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/ProjectDownloadServiceImpl.java)。
+
+### 8.2 部署封面截图与 COS 上传
+
+部署目录复制和数据库更新成功后，`AppServiceImpl.generateAppScreenshotAsync` 使用虚拟线程异步访问部署 URL。`WebScreenshotUtils` 通过无头 Chrome 打开页面，等待 `document.readyState` 及额外 2 秒，保存 PNG 后按 0.3 质量压缩为 JPEG。截图服务将文件上传到 COS 的 `/screenshots/yyyy/MM/dd/` 前缀，成功后更新应用 `cover`，上传阶段结束时清理本次本地截图目录。
+
+`CosClientConfig` 读取本机配置创建 `COSClient`，`CosManager` 把 `host` 与对象键拼成访问 URL。前端 `normalizeCoverUrl` 兼容没有协议、`//host/path`、完整 HTTP/HTTPS 地址；应用卡片在加载失败时显示占位图。
+
+当前浏览器驱动为静态共享实例，没有并发隔离；`WebScreenshotUtils` 不是 Spring Bean，其 `@PreDestroy` 不能据此保证执行。异步任务尚无状态、失败重试和统一异常处理，因此部署接口成功不表示封面已经生成。Chrome、驱动、部署站点可达性和 COS 权限均需单独验收。
+
+源码：[截图工具](../src/main/java/com/hui/huiaicodemother/utils/WebScreenshotUtils.java)、[ScreenshotServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/ScreenshotServiceImpl.java)、[CosManager](../src/main/java/com/hui/huiaicodemother/manager/CosManager.java)、[封面 URL 处理](../hui-ai-code-mother-frontend/src/utils/cover.ts)。
+
 ## 9. 本地运行与配置
 
 1. 安装 Java 21、Node.js（建议 22.12+ 或符合 Vite 7 要求的更新版本）、MySQL 和 Redis。
@@ -187,6 +211,10 @@ Vue 工程生成结束后，后端虚拟线程自动执行 `npm install`（300 �
 6. 仓库根目录运行 `./mvnw spring-boot:run`；Windows 使用 `.\mvnw.cmd spring-boot:run`。后端端口 8123，接口文档为 `http://localhost:8123/api/doc.html`。
 7. 前端目录运行 `npm ci`、`npm run dev`。`VITE_API_BASE_URL` 默认 `http://localhost:8123/api`，`VITE_DEPLOY_DOMAIN` 默认 `http://localhost`；部署服务地址须与后端 `AppConstant.CODE_DEPLOY_HOST` 一致。
 8. 生成目录相对于后端启动时的工作目录，部署环境需配置持久化存储和静态服务。后端进程的 PATH 需包含 Node.js/npm；更新构建器后需重启后端。
+9. 在 `application-local.yml` 配置 `cos.client.host`、`secretId`、`secretKey`、`region`、`bucket`；`host` 包含 `https://`。COS 客户端当前启动即创建，本机测试也需要有效的配置字段，创建 Bean 不等于已经验证上传成功。
+10. 部署截图需要本机 Chrome、匹配的 ChromeDriver，以及从后端到部署站点和 COS 的网络访问。WebDriverManager 会管理驱动获取；封面任务运行于部署返回后的虚拟线程中。
+
+普通 `chat-model` 指定 `custom-headers.Accept-Encoding: gzip`，规避当前间接依赖 `org.brotli:dec:0.1.2` 的同步响应截断。不要把 HTTP 200 视为响应正文完整的证明；根因、对照实验与测试命令见 [AI 路由故障排查](ai-routing-troubleshooting.md)。
 
 生产配置还需收敛允许携带 Cookie 的跨域来源、采用更适合密码存储的哈希算法、控制模型请求/响应日志。当前代码允许所有来源模式、使用固定盐 MD5，并启用模型日志，不能直接视为生产安全配置。
 
@@ -234,22 +262,23 @@ Vue 工程生成结束后，后端虚拟线程自动执行 `npm install`（300 �
 
 ### 10.3 生成类型路由与门面模式
 
-**是什么。** `CodeGenTypeEnum` 定义生成类型，`AiCodeGeneratorFacade` 提供统一生成入口，根据类型协调 AI Service、解析器与保存器。
+**是什么。** `AiCodeGenTypeRoutingService` 根据需求返回 `CodeGenTypeEnum`，决定应用创建时保存的生成类型；后续 `AiCodeGeneratorFacade` 提供统一生成入口，根据该类型协调 AI Service、解析器与保存器。
 
 **为什么采用。** HTML、三文件网页和 Vue 工程的产物结构与保存方式不同。统一入口可以让应用服务专注于“谁能生成、给哪个应用生成、如何记录历史”，具体生成差异放到门面及策略实现中。
 
 **实现步骤（当前）。**
 
-1. 创建应用时保存 `initPrompt`、创建者和 `codeGenType`；当前创建接口固定设置 `vue_project`。
-2. 对话请求读取应用记录，将类型字符串转为枚举，不支持的值直接拒绝。
-3. 工厂按应用 ID 和类型返回对应 AI Service。
-4. 门面对 HTML/多文件调用 `Flux<String>` 方法，对 Vue 调用带 `@MemoryId` 的 `TokenStream` 方法。
-5. 文本模式走解析保存执行器，Vue 模式走工具及回调适配。
-6. 结果统一为 `Flux<String>` 交给业务层；同步 `generateAndSaveCode` 入口只支持 HTML 和多文件。
+1. `AiCodeGenTypeRoutingServiceFactory` 使用普通 `ChatModel` 创建无对话记忆的路由代理，通过 `@SystemMessage(fromResource = "prompt/codegen-routing-system-prompt.txt")` 加载路由规则。
+2. 创建应用时同步分类：简单展示单页选 `HTML`，简单静态多页选 `MULTI_FILE`，涉及复杂交互、数据管理等选 `VUE_PROJECT`；接口直接返回枚举，业务层保存其 `getValue()`。
+3. 对话请求读取应用记录，将类型字符串转为枚举，不支持的值直接拒绝。
+4. 工厂按应用 ID 和类型返回对应 AI Service。
+5. 门面对 HTML/多文件调用 `Flux<String>` 方法，对 Vue 调用带 `@MemoryId` 的 `TokenStream` 方法。
+6. 文本模式走解析保存执行器，Vue 模式走工具及回调适配。
+7. 结果统一为 `Flux<String>` 交给业务层；同步 `generateAndSaveCode` 入口只支持 HTML 和多文件。
 
-**扩展方式。** 新增类型时依次补枚举、提示词、AI 方法、工厂分支、门面分支、产物处理器、流处理器和前端类型映射。当前路由由应用记录决定，需求自动分类与智能策略选择尚未实现。
+**扩展方式。** 新增类型时依次补枚举、路由规则、生成提示词、AI 方法、工厂分支、门面分支、产物处理器、流处理器和前端类型映射。当前分类仅在创建时执行，后续对话沿用已保存类型；分类评估、失败兜底及创建超时体验仍需完善。
 
-源码：[生成类型枚举](../src/main/java/com/hui/huiaicodemother/model/enums/CodeGenTypeEnum.java)、[生成门面](../src/main/java/com/hui/huiaicodemother/core/AiCodeGeneratorFacade.java)。
+源码：[生成类型枚举](../src/main/java/com/hui/huiaicodemother/model/enums/CodeGenTypeEnum.java)、[路由接口](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGenTypeRoutingService.java)、[路由提示词](../src/main/resources/prompt/codegen-routing-system-prompt.txt)、[生成门面](../src/main/java/com/hui/huiaicodemother/core/AiCodeGeneratorFacade.java)。
 
 ### 10.4 结构化返回、代码块解析与模板保存
 
