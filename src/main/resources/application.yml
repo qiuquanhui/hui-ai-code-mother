@@ -48,11 +48,14 @@ langchain4j:
       base-url: https://api.deepseek.com
       api-key: <Your API Key>
       model-name: deepseek-chat
+      # 避免 Brotli 0.1.2 在 Spring 读取响应时丢失正文
+      custom-headers:
+        Accept-Encoding: gzip
       log-requests: true
       log-responses: true
       max-tokens: 8192
-      strict-json-schema: true
-      response-format: json_object
+#      strict-json-schema: true
+#      response-format: json_object
       max-retries: 3
     streaming-chat-model:
       base-url: https://api.deepseek.com
