@@ -1,7 +1,12 @@
 <template>
   <div class="app-card" :class="{ 'app-card--featured': featured }">
     <div class="app-preview">
-      <img v-if="app.cover" :src="app.cover" :alt="app.appName" />
+      <img
+        v-if="coverUrl && !coverLoadError"
+        :src="coverUrl"
+        :alt="app.appName"
+        @error="coverLoadError = true"
+      />
       <div v-else class="app-placeholder">
         <span>🤖</span>
       </div>
@@ -29,6 +34,9 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { normalizeCoverUrl } from '@/utils/cover'
+
 interface Props {
   app: API.AppVO
   featured?: boolean
@@ -44,6 +52,14 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<Emits>()
+
+// 封面地址：无封面返回空字符串，走默认占位图
+const coverUrl = computed(() => normalizeCoverUrl(props.app.cover))
+// 封面加载失败（链接失效等）时回退默认占位图
+const coverLoadError = ref(false)
+watch(coverUrl, () => {
+  coverLoadError.value = false
+})
 
 const handleViewChat = () => {
   emit('view-chat', props.app.id)
