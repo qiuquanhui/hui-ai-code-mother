@@ -1,5 +1,6 @@
 package com.hui.huiaicodemother.service;
 
+import com.hui.huiaicodemother.model.dto.app.AppAddRequest;
 import com.hui.huiaicodemother.model.dto.app.AppQueryRequest;
 import com.hui.huiaicodemother.model.entity.User;
 import com.hui.huiaicodemother.model.vo.AppVO;
@@ -16,6 +17,24 @@ import java.util.List;
  * @author 小辉
  */
 public interface AppService extends IService<App> {
+
+
+    /**
+     * 异步生成应用截图并更新封面
+     *
+     * @param appId  应用ID
+     * @param appUrl 应用访问URL
+     */
+    void generateAppScreenshotAsync(Long appId, String appUrl);
+
+    /**
+     * 创建应用
+     *
+     * @param appAddRequest
+     * @param loginUser
+     * @return
+     */
+    Long createApp(AppAddRequest appAddRequest, User loginUser);
 
     /**
      * 通过对话生成应用代码
