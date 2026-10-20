@@ -31,7 +31,7 @@
           <template #icon>
             <CloudUploadOutlined />
           </template>
-          部署按钮
+          部署
         </a-button>
       </div>
     </div>
@@ -70,30 +70,69 @@
           </div>
         </div>
 
+        <!-- 选中元素信息展示 -->
+        <a-alert
+          v-if="selectedElementInfo"
+          class="selected-element-alert"
+          type="info"
+          closable
+          @close="clearSelectedElement"
+        >
+          <template #message>
+            <div class="selected-element-info">
+              <div class="element-header">
+                <span class="element-tag">
+                  选中元素：{{ selectedElementInfo.tagName.toLowerCase() }}
+                </span>
+                <span v-if="selectedElementInfo.id" class="element-id">
+                  #{{ selectedElementInfo.id }}
+                </span>
+                <span v-if="selectedElementInfo.className" class="element-class">
+                  .{{ selectedElementInfo.className.split(' ').join('.') }}
+                </span>
+              </div>
+              <div class="element-details">
+                <div v-if="selectedElementInfo.textContent" class="element-item">
+                  内容: {{ selectedElementInfo.textContent.substring(0, 50) }}
+                  {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
+                </div>
+                <div v-if="selectedElementInfo.pagePath" class="element-item">
+                  页面路径: {{ selectedElementInfo.pagePath }}
+                </div>
+                <div class="element-item">
+                  选择器:
+                  <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
+                </div>
+              </div>
+            </div>
+          </template>
+        </a-alert>
+
         <!-- 用户消息输入框 -->
         <div class="input-container">
           <div class="input-wrapper">
             <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
               <a-textarea
                 v-model:value="userInput"
-                placeholder="请描述你想生成的网站，越详细效果越好哦"
+                :placeholder="getInputPlaceholder()"
                 :rows="4"
                 :maxlength="1000"
-                @keydown.enter.prevent="sendMessage"
+                @keydown.enter="handleInputEnter"
                 :disabled="isGenerating || !isOwner"
               />
             </a-tooltip>
             <a-textarea
               v-else
               v-model:value="userInput"
-              placeholder="请描述你想生成的网站，越详细效果越好哦"
+              :placeholder="getInputPlaceholder()"
               :rows="4"
               :maxlength="1000"
-              @keydown.enter.prevent="sendMessage"
+              @keydown.enter="handleInputEnter"
               :disabled="isGenerating"
             />
             <div class="input-actions">
               <a-button
+                aria-label="发送"
                 type="primary"
                 @click="sendMessage"
                 :loading="isGenerating"
@@ -112,6 +151,21 @@
         <div class="preview-header">
           <h3>生成后的网页展示</h3>
           <div class="preview-actions">
+            <a-button
+              v-if="isOwner && previewUrl"
+              :disabled="isGenerating || !previewReady"
+              type="link"
+              :danger="isEditMode"
+              :aria-label="isEditMode ? '退出编辑' : '编辑模式'"
+              @click="toggleEditMode"
+              :class="{ 'edit-mode-active': isEditMode }"
+              style="padding: 0; height: auto; margin-right: 12px"
+            >
+              <template #icon>
+                <EditOutlined />
+              </template>
+              {{ isEditMode ? '退出编辑' : '编辑模式' }}
+            </a-button>
             <a-button v-if="previewUrl" type="link" @click="openInNewTab">
               <template #icon>
                 <ExportOutlined />
@@ -130,9 +184,11 @@
             <p>正在生成网站...</p>
           </div>
           <iframe
-            v-else
+            v-if="previewUrl"
+            ref="previewIframe"
             :src="previewUrl"
             class="preview-iframe"
+            title="应用预览"
             frameborder="0"
             @load="onIframeLoad"
           ></iframe>
@@ -177,13 +233,15 @@ import AppDetailModal from '@/components/AppDetailModal.vue'
 import DeploySuccessModal from '@/components/DeploySuccessModal.vue'
 import aiAvatar from '@/assets/aiAvatar.png'
 import { API_BASE_URL, getStaticPreviewUrl } from '@/config/env'
+import { VisualEditor, type ElementInfo } from '@/utils/visualEditor'
 
 import {
-  DownloadOutlined,
   CloudUploadOutlined,
   SendOutlined,
   ExportOutlined,
   InfoCircleOutlined,
+  DownloadOutlined,
+  EditOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -216,15 +274,34 @@ const historyLoaded = ref(false)
 // 预览相关
 const previewUrl = ref('')
 const previewReady = ref(false)
+const previewIframe = ref<HTMLIFrameElement>()
+let activeEventSource: EventSource | null = null
+let disposed = false
+let previewVersion = 0
 
 // 部署相关
 const deploying = ref(false)
 const deployModalVisible = ref(false)
 const deployUrl = ref('')
 
+// 下载相关
+const downloading = ref(false)
+
+// 可视化编辑相关
+const isEditMode = ref(false)
+const selectedElementInfo = ref<ElementInfo | null>(null)
+const visualEditor = new VisualEditor({
+  onElementSelected: (elementInfo: ElementInfo) => {
+    if (isOwner.value && !isGenerating.value) selectedElementInfo.value = elementInfo
+  },
+  onError: (text) => message.error(text),
+})
+
 // 权限相关
 const isOwner = computed(() => {
-  return appInfo.value?.userId === loginUserStore.loginUser.id
+  return (
+    !!appInfo.value?.userId && String(appInfo.value.userId) === String(loginUserStore.loginUser.id)
+  )
 })
 
 const isAdmin = computed(() => {
@@ -241,7 +318,7 @@ const showAppDetail = () => {
 
 // 加载对话历史
 const loadChatHistory = async (isLoadMore = false) => {
-  if (!appId.value || loadingHistory.value) return
+  if (!appId.value || loadingHistory.value || (isLoadMore && isGenerating.value)) return
   loadingHistory.value = true
   try {
     const params: API.listAppChatHistoryParams = {
@@ -285,46 +362,6 @@ const loadChatHistory = async (isLoadMore = false) => {
     message.error('加载对话历史失败')
   } finally {
     loadingHistory.value = false
-  }
-}
-// 下载相关
-const downloading = ref(false)
-
-// 下载代码
-const downloadCode = async () => {
-  if (!appId.value) {
-    message.error('应用ID不存在')
-    return
-  }
-  downloading.value = true
-  try {
-    const API_BASE_URL = request.defaults.baseURL || ''
-    const url = `${API_BASE_URL}/app/download/${appId.value}`
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-    })
-    if (!response.ok) {
-      throw new Error(`下载失败: ${response.status}`)
-    }
-    // 获取文件名
-    const contentDisposition = response.headers.get('Content-Disposition')
-    const fileName = contentDisposition?.match(/filename="(.+)"/)?.[1] || `app-${appId.value}.zip`
-    // 下载文件
-    const blob = await response.blob()
-    const downloadUrl = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = downloadUrl
-    link.download = fileName
-    link.click()
-    // 清理
-    URL.revokeObjectURL(downloadUrl)
-    message.success('代码下载成功')
-  } catch (error) {
-    console.error('下载失败：', error)
-    message.error('下载失败，请重试')
-  } finally {
-    downloading.value = false
   }
 }
 
@@ -392,28 +429,44 @@ const sendInitialMessage = async (prompt: string) => {
     loading: true,
   })
 
+  isGenerating.value = true
   await nextTick()
   scrollToBottom()
 
   // 开始生成
-  isGenerating.value = true
   await generateCode(prompt, aiMessageIndex)
 }
 
 // 发送消息
 const sendMessage = async () => {
-  if (!userInput.value.trim() || isGenerating.value) {
+  if (!userInput.value.trim() || isGenerating.value || !isOwner.value) {
     return
   }
 
-  const message = userInput.value.trim()
+  let message = userInput.value.trim()
+  // 如果有选中的元素，将元素信息添加到提示词中
+  if (selectedElementInfo.value) {
+    let elementContext = `\n\n选中元素信息：`
+    if (selectedElementInfo.value.pagePath) {
+      elementContext += `\n- 页面路径: ${selectedElementInfo.value.pagePath}`
+    }
+    elementContext += `\n- 标签: ${selectedElementInfo.value.tagName.toLowerCase()}\n- 选择器: ${selectedElementInfo.value.selector}`
+    if (selectedElementInfo.value.textContent) {
+      elementContext += `\n- 当前内容: ${selectedElementInfo.value.textContent.substring(0, 100)}`
+    }
+    message += elementContext
+  }
   userInput.value = ''
-
-  // 添加用户消息
+  // 添加用户消息（包含元素信息）
   messages.value.push({
     type: 'user',
     content: message,
   })
+
+  // 发送消息后，清除选中元素并退出编辑模式
+  clearSelectedElement()
+  visualEditor.disableEditMode()
+  isEditMode.value = false
 
   // 添加AI消息占位符
   const aiMessageIndex = messages.value.length
@@ -423,11 +476,11 @@ const sendMessage = async () => {
     loading: true,
   })
 
+  isGenerating.value = true
   await nextTick()
   scrollToBottom()
 
   // 开始生成
-  isGenerating.value = true
   await generateCode(message, aiMessageIndex)
 }
 
@@ -453,6 +506,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       withCredentials: true,
     })
 
+    activeEventSource = eventSource
     let fullContent = ''
 
     // 处理接收到的消息
@@ -473,44 +527,55 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
         }
       } catch (error) {
         console.error('解析消息失败:', error)
-        handleError(error, aiMessageIndex)
+        failStream(error)
       }
     }
+
+    const failStream = (error: unknown) => {
+      streamCompleted = true
+      eventSource?.close()
+      activeEventSource = null
+      if (!disposed) handleError(error, aiMessageIndex)
+    }
+
+    eventSource.addEventListener('generation_error', (event: MessageEvent) => {
+      if (streamCompleted) return
+      try {
+        const failure = JSON.parse(event.data)
+        failStream(
+          new Error(typeof failure.message === 'string' ? failure.message : '生成失败，请重试。'),
+        )
+      } catch {
+        failStream(new Error('生成失败，服务返回了无效的错误信息。'))
+      }
+    })
 
     // 处理done事件
     eventSource.addEventListener('done', function () {
       if (streamCompleted) return
 
       streamCompleted = true
-      isGenerating.value = false
       eventSource?.close()
-
-      // 延迟更新预览，确保后端已完成处理
-      setTimeout(async () => {
-        await fetchAppInfo()
-        updatePreview()
-      }, 1000)
+      activeEventSource = null
+      messages.value[aiMessageIndex]!.loading = false
+      // Backend completion now includes Vue build completion.
+      void (async () => {
+        try {
+          if (!disposed) await loadChatHistory()
+          if (!disposed) updatePreview()
+        } finally {
+          isGenerating.value = false
+        }
+      })()
     })
 
-    // 处理错误
-    eventSource.onerror = function () {
-      if (streamCompleted || !isGenerating.value) return
-      // 检查是否是正常的连接关闭
-      if (eventSource?.readyState === EventSource.CONNECTING) {
-        streamCompleted = true
-        isGenerating.value = false
-        eventSource?.close()
-
-        setTimeout(async () => {
-          await fetchAppInfo()
-          updatePreview()
-        }, 1000)
-      } else {
-        handleError(new Error('SSE连接错误'), aiMessageIndex)
-      }
+    eventSource.onerror = () => {
+      if (!streamCompleted) failStream(new Error('SSE连接中断，未收到完成事件'))
     }
   } catch (error) {
     console.error('创建 EventSource 失败：', error)
+    eventSource?.close()
+    activeEventSource = null
     handleError(error, aiMessageIndex)
   }
 }
@@ -518,9 +583,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 // 错误处理函数
 const handleError = (error: unknown, aiMessageIndex: number) => {
   console.error('生成代码失败：', error)
-  messages.value[aiMessageIndex].content = '抱歉，生成过程中出现了错误，请重试。'
+  const errorMessage = error instanceof Error ? error.message : '生成失败，请重试。'
+  messages.value[aiMessageIndex].content = errorMessage
   messages.value[aiMessageIndex].loading = false
-  message.error('生成失败，请重试')
+  message.error(errorMessage)
   isGenerating.value = false
 }
 
@@ -529,8 +595,9 @@ const updatePreview = () => {
   if (appId.value) {
     const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
     const newPreviewUrl = getStaticPreviewUrl(codeGenType, appId.value)
-    previewUrl.value = newPreviewUrl
-    previewReady.value = true
+    clearSelectedElement()
+    previewReady.value = false
+    previewUrl.value = `${newPreviewUrl}?_preview=${Date.now()}-${++previewVersion}`
   }
 }
 
@@ -538,6 +605,44 @@ const updatePreview = () => {
 const scrollToBottom = () => {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
+}
+
+// 下载代码
+const downloadCode = async () => {
+  if (!appId.value) {
+    message.error('应用ID不存在')
+    return
+  }
+  downloading.value = true
+  try {
+    const API_BASE_URL = request.defaults.baseURL || ''
+    const url = `${API_BASE_URL}/app/download/${appId.value}`
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      throw new Error(`下载失败: ${response.status}`)
+    }
+    // 获取文件名
+    const contentDisposition = response.headers.get('Content-Disposition')
+    const fileName = contentDisposition?.match(/filename="(.+)"/)?.[1] || `app-${appId.value}.zip`
+    // 下载文件
+    const blob = await response.blob()
+    const downloadUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = fileName
+    link.click()
+    // 清理
+    URL.revokeObjectURL(downloadUrl)
+    message.success('代码下载成功')
+  } catch (error) {
+    console.error('下载失败：', error)
+    message.error('下载失败，请重试')
+  } finally {
+    downloading.value = false
   }
 }
 
@@ -583,9 +688,14 @@ const openDeployedSite = () => {
   }
 }
 
-// iframe加载完成
+// iframe 加载后重新绑定编辑器；页面跳转时旧元素不再有效。
 const onIframeLoad = () => {
   previewReady.value = true
+  selectedElementInfo.value = null
+  if (previewIframe.value) {
+    visualEditor.init(previewIframe.value)
+    isEditMode.value = visualEditor.onIframeLoad()
+  }
 }
 
 // 编辑应用
@@ -614,14 +724,44 @@ const deleteApp = async () => {
   }
 }
 
-// 页面加载时获取应用信息
+// 可视化编辑相关函数
+const toggleEditMode = () => {
+  if (!isOwner.value || isGenerating.value || !previewReady.value || !previewIframe.value) return
+  visualEditor.init(previewIframe.value)
+  isEditMode.value = visualEditor.toggleEditMode()
+  if (!isEditMode.value) clearSelectedElement()
+}
+
+const clearSelectedElement = () => {
+  selectedElementInfo.value = null
+  visualEditor.clearSelection()
+}
+
+const getInputPlaceholder = () => {
+  if (selectedElementInfo.value) {
+    return `正在编辑 ${selectedElementInfo.value.tagName.toLowerCase()} 元素，描述您想要的修改...`
+  }
+  return '请描述你想生成的网站，越详细效果越好哦'
+}
+
+const handleInputEnter = (event: KeyboardEvent) => {
+  if (event.isComposing || event.shiftKey) return
+  event.preventDefault()
+  void sendMessage()
+}
+
+const handlePreviewMessage = (event: MessageEvent) => visualEditor.handleIframeMessage(event)
+
 onMounted(() => {
-  fetchAppInfo()
+  window.addEventListener('message', handlePreviewMessage)
+  void fetchAppInfo()
 })
 
-// 清理资源
 onUnmounted(() => {
-  // EventSource 会在组件卸载时自动清理
+  disposed = true
+  activeEventSource?.close()
+  window.removeEventListener('message', handlePreviewMessage)
+  visualEditor.destroy()
 })
 </script>
 
@@ -646,6 +786,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.code-gen-type-tag {
+  font-size: 12px;
 }
 
 .app-name {
@@ -681,7 +825,7 @@ onUnmounted(() => {
 }
 
 .messages-container {
-  flex: 1;
+  flex: 0.9;
   padding: 16px;
   overflow-y: auto;
   scroll-behavior: smooth;
@@ -761,9 +905,11 @@ onUnmounted(() => {
   bottom: 8px;
   right: 8px;
 }
+
 .code-gen-type-tag {
   font-size: 12px;
 }
+
 /* 右侧预览区域 */
 .preview-section {
   flex: 3;
@@ -815,6 +961,10 @@ onUnmounted(() => {
 }
 
 .preview-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: white;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -831,6 +981,10 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   border: none;
+}
+
+.selected-element-alert {
+  margin: 0 16px;
 }
 
 /* 响应式设计 */
@@ -863,6 +1017,70 @@ onUnmounted(() => {
   .message-content {
     max-width: 85%;
   }
+}
 
+/* 选中元素信息样式 */
+.selected-element-alert {
+  margin: 0 16px;
+}
+
+.selected-element-info {
+  line-height: 1.4;
+}
+
+.element-header {
+  margin-bottom: 8px;
+}
+
+.element-details {
+  margin-top: 8px;
+}
+
+.element-item {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.element-item:last-child {
+  margin-bottom: 0;
+}
+
+.element-tag {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: #007bff;
+}
+
+.element-id {
+  color: #28a745;
+  margin-left: 4px;
+}
+
+.element-class {
+  color: #ffc107;
+  margin-left: 4px;
+}
+
+.element-selector-code {
+  font-family: 'Monaco', 'Menlo', monospace;
+  background: #f6f8fa;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #d73a49;
+  border: 1px solid #e1e4e8;
+}
+
+/* 编辑模式按钮样式 */
+.edit-mode-active {
+  background-color: #52c41a !important;
+  border-color: #52c41a !important;
+  color: white !important;
+}
+
+.edit-mode-active:hover {
+  background-color: #73d13d !important;
+  border-color: #73d13d !important;
 }
 </style>
