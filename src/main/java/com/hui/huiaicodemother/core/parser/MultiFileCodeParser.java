@@ -28,11 +28,11 @@ public class MultiFileCodeParser implements CodeParser<MultiFileCodeResult> {
             result.setHtmlCode(htmlCode.trim());
         }
         // 设置CSS代码
-        if (cssCode != null && !cssCode.trim().isEmpty()) {
+        if (cssCode != null) {
             result.setCssCode(cssCode.trim());
         }
         // 设置JS代码
-        if (jsCode != null && !jsCode.trim().isEmpty()) {
+        if (jsCode != null) {
             result.setJsCode(jsCode.trim());
         }
         return result;

@@ -74,7 +74,7 @@ public abstract class CodeFileSaverTemplate<T> {
      * @param content  文件内容
      */
     protected final void writeToFile(String dirPath, String filename, String content) {
-        if (StrUtil.isNotBlank(content)) {
+        if (content != null) {
             String filePath = dirPath + File.separator + filename;
             FileUtil.writeString(content, filePath, StandardCharsets.UTF_8);
         }

@@ -147,7 +147,8 @@ public class AiCodeGeneratorFacade {
                 File savedDir = CodeFileSaverExecutor.executeSaver(parsedResult, codeGenType,appId);
                 log.info("保存成功，路径为：" + savedDir.getAbsolutePath());
             } catch (Exception e) {
-                log.error("保存失败: {}", e.getMessage());
+                log.error("保存失败: {}", e.getMessage(), e);
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "保存生成代码失败");
             }
         });
     }
