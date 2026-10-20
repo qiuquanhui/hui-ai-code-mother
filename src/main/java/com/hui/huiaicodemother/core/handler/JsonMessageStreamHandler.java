@@ -1,10 +1,15 @@
 package com.hui.huiaicodemother.core.handler;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.hui.huiaicodemother.ai.model.message.*;
+import com.hui.huiaicodemother.ai.tools.BaseTool;
+import com.hui.huiaicodemother.ai.tools.ToolManager;
+import com.hui.huiaicodemother.exception.BusinessException;
+import com.hui.huiaicodemother.exception.ErrorCode;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import com.hui.huiaicodemother.constant.AppConstant;
 import com.hui.huiaicodemother.core.builder.VueProjectBuilder;
 import com.hui.huiaicodemother.model.entity.User;
@@ -29,6 +34,9 @@ public class JsonMessageStreamHandler {
     @Resource
     private VueProjectBuilder vueProjectBuilder;
 
+    @Resource
+    private ToolManager toolManager;
+
     /**
      * 处理 TokenStream（VUE_PROJECT）
      * 解析 JSON 消息并重组为完整的响应格式
@@ -52,13 +60,17 @@ public class JsonMessageStreamHandler {
                     return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
                 })
                 .filter(StrUtil::isNotEmpty) // 过滤空字串
+                // A completed edit must expose the newly built page, not the previous dist.
+                .concatWith(Mono.<String>fromRunnable(() -> {
+                    String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
+                    if (!vueProjectBuilder.buildProject(projectPath)) {
+                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Vue 项目构建失败，请检查代码和依赖");
+                    }
+                }).subscribeOn(Schedulers.boundedElastic()))
                 .doOnComplete(() -> {
                     // 流式响应完成后，添加 AI 消息到对话历史
                     String aiResponse = chatHistoryStringBuilder.toString();
                     chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-                    // 异步构造 Vue 项目
-                    String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
-                    vueProjectBuilder.buildProjectAsync(projectPath);
                 })
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
@@ -74,6 +86,10 @@ public class JsonMessageStreamHandler {
         // 解析 JSON
         StreamMessage streamMessage = JSONUtil.toBean(chunk, StreamMessage.class);
         StreamMessageTypeEnum typeEnum = StreamMessageTypeEnum.getEnumByValue(streamMessage.getType());
+        if (typeEnum == null) {
+            log.warn("忽略未知流消息类型: {}", streamMessage.getType());
+            return "";
+        }
         switch (typeEnum) {
             case AI_RESPONSE -> {
                 AiResponseMessage aiMessage = JSONUtil.toBean(chunk, AiResponseMessage.class);
@@ -88,8 +104,10 @@ public class JsonMessageStreamHandler {
                 // 检查是否是第一次看到这个工具 ID
                 if (toolId != null && !seenToolIds.contains(toolId)) {
                     // 第一次调用这个工具，记录 ID 并完整返回工具信息
+                    BaseTool tool = toolManager.getTool(toolRequestMessage.getName());
+                    if (tool == null) return "";
                     seenToolIds.add(toolId);
-                    return "\n\n[选择工具] 写入文件\n\n";
+                    return tool.generateToolRequestResponse();
                 } else {
                     // 不是第一次调用这个工具，直接返回空
                     return "";
@@ -98,15 +116,16 @@ public class JsonMessageStreamHandler {
             case TOOL_EXECUTED -> {
                 ToolExecutedMessage toolExecutedMessage = JSONUtil.toBean(chunk, ToolExecutedMessage.class);
                 JSONObject jsonObject = JSONUtil.parseObj(toolExecutedMessage.getArguments());
-                String relativeFilePath = jsonObject.getStr("relativeFilePath");
-                String suffix = FileUtil.getSuffix(relativeFilePath);
-                String content = jsonObject.getStr("content");
-                String result = String.format("""
-                        [工具调用] 写入文件 %s
-                        ```%s
-                        %s
-                        ```
-                        """, relativeFilePath, suffix, content);
+                BaseTool tool = toolManager.getTool(toolExecutedMessage.getName());
+                String executionResult = toolExecutedMessage.getResult();
+                String result = tool == null
+                        ? "[工具调用] 未知工具 " + toolExecutedMessage.getName()
+                        : tool.generateToolExecutedResult(jsonObject);
+                // Persist the actual result too: failed operations must not appear successful.
+                if (StrUtil.isNotBlank(executionResult) && !"readFile".equals(toolExecutedMessage.getName())
+                        && !"readDir".equals(toolExecutedMessage.getName())) {
+                    result += "\n执行结果：" + executionResult;
+                }
                 // 输出前端和要持久化的内容
                 String output = String.format("\n\n%s\n\n", result);
                 chatHistoryStringBuilder.append(output);

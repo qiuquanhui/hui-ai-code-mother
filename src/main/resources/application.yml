@@ -19,6 +19,10 @@ spring:
     store-type: redis
       # session 30 天过期
     timeout: 2592000
+  mvc:
+    async:
+      # Vue SSE completion waits for dependency installation and build (up to 8 minutes).
+      request-timeout: 900000
   profiles:
     active: local
 server:

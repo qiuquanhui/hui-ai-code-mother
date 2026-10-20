@@ -2,7 +2,7 @@ package com.hui.huiaicodemother.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.hui.huiaicodemother.ai.tools.FileWriteTool;
+import com.hui.huiaicodemother.ai.tools.ToolManager;
 import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.exception.ErrorCode;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
@@ -35,6 +35,9 @@ public class AiCodeGeneratorServiceFactory {
 
     @Resource
     private ChatHistoryService chatHistoryService;
+
+    @Resource
+    private ToolManager toolManager;
 
     /**
      * 普通工程的流式对话模型
@@ -101,7 +104,7 @@ public class AiCodeGeneratorServiceFactory {
             case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
                     .streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
-                    .tools(new FileWriteTool())
+                    .tools((Object[]) toolManager.getAllTools())
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
                             toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
                     ))
