@@ -1,13 +1,13 @@
 # Vue 构建与故障排查
 
-更新日期：2026-10-16。本文记录当前实现和本次本地验证；不表示全部生成任务或生产环境已验收。
+更新日期：2026-10-20。本文记录当前实现和本次本地验证；不表示全部生成任务或生产环境已验收。
 
 ## 1. 构建流程
 
 1. Vue 文件工具把源码写入 `tmp/code_output/vue_project_{appId}`。
-2. `JsonMessageStreamHandler` 在生成流完成后调用 `buildProjectAsync`，虚拟线程执行构建；生成流的 `done` 事件不等待构建结束。
+2. `JsonMessageStreamHandler` 在模型流完成后，在 `boundedElastic` 线程上调用 `buildProject`；构建成功并保存回复后才发送 `done`，失败会进入流错误分支。
 3. `VueProjectBuilder` 检查项目目录及 `package.json`，执行 `npm install`（300 秒超时）、`npm run build`（180 秒超时），最后检查 `dist/index.html`。
-4. 前端识别 `vue_project` 类型，预览 `/api/static/vue_project_{appId}/dist/index.html`。首次构建未完成时，预览可能暂时为空或返回 404，完成后需刷新；目前没有前端可订阅的构建状态。
+4. 前端识别 `vue_project` 类型，预览 `/api/static/vue_project_{appId}/dist/index.html`。生成期间前端保留加载状态，收到 `done` 后用新的 `_preview` 参数刷新产物；目前尚无安装/构建阶段的细分状态。
 5. 点击部署时，`AppServiceImpl` 调用同一构建器，成功后仅复制 `dist` 内容到 `tmp/code_deploy/{deployKey}`，再更新部署标识及时间。
 6. Nginx 等静态服务映射 `tmp/code_deploy`，部署域名与后端 `AppConstant.CODE_DEPLOY_HOST`、前端 `VITE_DEPLOY_DOMAIN` 保持一致。后端预览接口读取的是生成目录，不托管部署目录。
 

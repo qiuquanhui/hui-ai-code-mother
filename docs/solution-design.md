@@ -1,6 +1,6 @@
 # 方案设计
 
-更新日期：2026-10-19。本文按“是什么 → 为什么采用 → 实现思路 → 实现步骤”说明技术方案，重点展开 AI 路由与生成、工具调用、流式响应、对话记忆、登录态、Vue 构建发布、源码下载和部署封面。
+更新日期：2026-10-20。本文按“是什么 → 为什么采用 → 实现思路 → 实现步骤”说明技术方案，重点展开 AI 路由与生成、工具调用、流式响应、对话记忆、登录态、Vue 构建发布、源码下载和部署封面。
 
 文中的“当前实现”均有仓库源码对应；“选型理由”是结合当前需求与代码给出的工程解释；“改进步骤”是后续建议，不能作为已经落地的功能。示例代码是核心逻辑摘录，完整实现以源码链接为准。
 
@@ -52,7 +52,7 @@ flowchart TD
     A --> M[(Redis Chat Memory)]
     A --> L[LangChain4j / 模型 API]
     L --> P[HTML / 多文件解析与保存]
-    L --> T[Vue FileWriteTool]
+    L --> T[Vue 文件工具]
     P --> FS[本地生成目录]
     T --> FS
     FS -->|Vue 工程| BUILD[VueProjectBuilder 安装与打包]
@@ -99,9 +99,9 @@ MySQL 对话历史用于界面回放和业务持久化；Redis 保存模型当�
 3. 工厂以 `{appId}_{codeGenType}` 为 Caffeine 键，最多缓存 1000 个实例；写入 30 分钟或访问空闲 10 分钟后过期。
 4. 每个实例建立以 `appId` 为 ID、最多 20 条消息的 `MessageWindowChatMemory`，存储于 Redis。记忆键只按应用区分，不按生成类型区分。
 5. 新建服务时按时间倒序查询 MySQL 历史，使用 `limit(1, 20)` 跳过最新记录，再反转、清空记忆并恢复。这个偏移依赖“先写本轮用户消息”的调用顺序；其他入口及并发请求可能不满足假设。
-6. HTML/多文件使用普通聊天模型及流式模型；Vue 使用独立流式模型和 `FileWriteTool`，通过 `@MemoryId` 将应用 ID 传给工具。
+6. HTML/多文件使用普通聊天模型及流式模型；Vue 使用独立流式模型和 `ToolManager` 注册的五种文件工具，通过 `@MemoryId` 将应用 ID 传给工具。
 7. 门面返回 `Flux<String>`，流处理器负责呈现内容及 AI 历史写入，控制器再封装为 SSE。
-8. Vue 流完成后，处理器调用 `VueProjectBuilder.buildProjectAsync`。构建与 SSE 完成异步进行，`done` 不保证 `dist` 已可用。
+8. Vue 模型流完成后，处理器在 `boundedElastic` 中调用 `VueProjectBuilder.buildProject`，等待成功后才保存 AI 回复并发送 `done`。
 
 实现依据：[AI 工厂](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGeneratorServiceFactory.java)、[历史服务](../src/main/java/com/hui/huiaicodemother/service/impl/ChatHistoryServiceImpl.java)、[生成门面](../src/main/java/com/hui/huiaicodemother/core/AiCodeGeneratorFacade.java)。
 
@@ -115,9 +115,9 @@ Vue 模型 Bean 名为 `reasoningStreamingChatModel`，但当前实际硬编码�
 | `multi_file` | 文本流，结束后解析 HTML/CSS/JS | `tmp/code_output/multi_file_{appId}/`，保存 `index.html`、`style.css`、`script.js` |
 | `vue_project` | TokenStream，模型调用写文件工具 | 工具执行时写入 `tmp/code_output/vue_project_{appId}/` 下的相对路径 |
 
-HTML/多文件的保存异常被门面捕获并记录日志，可能仍然结束消息流；Vue 工具把 I/O 失败返回为工具文本。当前“流完成”并不等价于“可运行产物构建成功”。
+HTML/多文件保存失败会抛出业务异常；Vue 工具把 I/O 失败返回为工具文本，流处理器展示真实执行结果。Vue `done` 等待构建成功；工具级失败是否已被模型修正仍需后续任务状态校验。
 
-[FileWriteTool](../src/main/java/com/hui/huiaicodemother/ai/tools/FileWriteTool.java) 会接受绝对路径，也没有阻止相对路径穿越。拟改为仅接受相对路径，规范化后检查目标位于应用根目录内，并明确符号链接、文件类型和大小约束。
+五种文件工具共用 `ProjectPathResolver`：只接受当前应用源码内的相对路径，拒绝绝对路径、目录穿越、链接及依赖/产物/环境目录。`FileModifyTool` 要求非空且唯一匹配的旧内容，避免误改相似元素。
 
 ## 6. 流式消息与前后端协议
 
@@ -126,7 +126,7 @@ Vue 模式内部消息包含三种类型：
 | 类型 | 来源 | 流处理器输出 |
 | --- | --- | --- |
 | `ai_response` | 模型文本片段 | 原样追加文本 |
-| `tool_request` | 部分工具调用事件 | 同一工具 ID 首次输出“选择工具：写入文件” |
+| `tool_request` | 部分工具调用事件 | 同一工具 ID 首次按 `ToolManager` 输出对应工具名称 |
 | `tool_executed` | 工具执行完成 | 文件路径及参数中的内容，以 Markdown 代码块展示并保存历史 |
 
 内部 JSON 经 [JsonMessageStreamHandler](../src/main/java/com/hui/huiaicodemother/core/handler/JsonMessageStreamHandler.java) 转成可读文本后，控制器输出统一外部协议：
@@ -139,7 +139,7 @@ data:
 
 ```
 
-前端使用 `EventSource`，携带 Cookie，从 `JSON.parse(event.data).d` 累积回复；收到 `done` 关闭连接，再刷新预览。内部工具 JSON 没有直接暴露为前端事件类型。
+前端使用 `EventSource`，携带 Cookie，从 `JSON.parse(event.data).d` 累积回复；收到 `done` 关闭连接，再刷新预览。内部工具 JSON 没有直接暴露为前端事件类型。初始化或流式阶段失败时发送命名事件 `generation_error`，数据为 `{code, message}`；错误分支不发送 `done`，前端结束加载并展示受控提示。
 
 定制 LangChain4j 源码贯通部分工具请求回调、模型响应处理及 `TokenStream`。升级依赖时需检查同包同名类的签名兼容、回调顺序和工具事件完整性；当前并无独立回归测试覆盖这些改动。
 
@@ -256,7 +256,7 @@ Vue 工程生成结束后，后端虚拟线程自动执行 `npm install`（300 �
 5. 将三个提示词分别绑定到服务方法；前端把用户的初始需求或修改意见作为本轮消息发送。
 6. 后端按模式解析代码或执行工具，把结果落到应用目录。
 
-**边界。** 提示词约束需要服务端校验支持。当前“文件数小于 30”和用户指定的代码行数没有硬校验；可构建性由后续 npm 命令及入口检查判断，但构建结果尚未接入生成任务状态。Vue 模型 8192 的配置也不能理解为整个多轮工具链有 20000 token 的总预算。Vue 提示词中的 Node.js 18+、Vite 4 示例是生成项目的约定，平台前端自身使用 Vite 7，两者运行环境需要分别判断。
+**边界。** 提示词约束需要服务端校验支持。当前“文件数小于 30”和用户指定的代码行数没有硬校验；可构建性由后续 npm 命令及入口检查判断，但构建结果已接入 SSE 完成条件，完整任务状态仍待完善。Vue 模型 8192 的配置也不能理解为整个多轮工具链有 20000 token 的总预算。Vue 提示词中的 Node.js 18+、Vite 4 示例是生成项目的约定，平台前端自身使用 Vite 7，两者运行环境需要分别判断。
 
 源码：[HTML 提示词](../src/main/resources/prompt/codegen-html-system-prompt.txt)、[多文件提示词](../src/main/resources/prompt/codegen-multi-file-system-prompt.txt)、[Vue 提示词](../src/main/resources/prompt/codegen-vue-project-system-prompt.txt)。
 
@@ -301,14 +301,14 @@ Vue 工程生成结束后，后端虚拟线程自动执行 `npm install`（300 �
 
 ### 10.5 Function Calling：让模型通过工具创建 Vue 文件
 
-**是什么。** Function Calling 允许模型返回工具名称和结构化参数，再由服务端执行受控 Java 方法。当前工具是 `FileWriteTool.writeFile(relativeFilePath, content, appId)`，模型提出写入请求，Java 进程执行实际文件操作。
+**是什么。** Function Calling 允许模型返回工具名称和结构化参数，再由服务端执行受控 Java 方法。工具由 `BaseTool` 统一协议、`ToolManager` 注册，模型可按目录读取 → 文件读取 → 局部替换的顺序修改 Vue 项目，Java 进程执行实际文件操作。
 
 **为什么采用。** Vue 工程包含多个目录和不同文件名，按 html/css/js 三个代码块提取无法表达完整项目。文件工具可以保留路径、内容和执行结果，支持模型逐步组织工程，也让执行过程可展示。
 
 **实现步骤（当前）。**
 
 1. 使用 `@Tool("写入文件到指定路径")` 暴露方法，使用 `@P` 描述路径和内容参数。
-2. Vue AI Service 构建时调用 `.tools(new FileWriteTool())` 注册工具。
+2. Vue AI Service 构建时调用 `.tools((Object[]) toolManager.getAllTools())` 注册工具。
 3. `generateVueProjectCodeStream(@MemoryId long appId, @UserMessage String userMessage)` 将应用 ID 传入调用上下文。
 4. 工具通过 `@ToolMemoryId Long appId` 接收该上下文值，使应用 ID 来自服务端调用；控制器在此之前已检查应用创建者权限。
 5. 模型返回 `writeFile` 请求及参数；AI Service 根据工具名称找到执行器，调用 Java 工具。
@@ -332,7 +332,7 @@ sequenceDiagram
     L-->>S: 继续调用工具或最终文本
 ```
 
-**边界。** 工具调用是能力授予边界，提示词不能代替文件路径校验。当前只注册写文件工具，没有读文件、列目录、安装依赖、执行构建等工具；持续修改主要依赖上下文和重新写文件。工厂配置了未知工具名策略，但本地定制的流式处理器直接按名称查执行器，仍需验证未知工具请求能否正确走兜底，不能只凭配置就认为该分支已可靠覆盖。
+**边界。** 工具调用是能力授予边界，提示词不能代替文件路径校验。当前注册目录读取、文件读取、唯一替换、文件写入和文件删除工具；安装依赖与构建仍由服务端控制。工厂配置了未知工具名策略，但本地定制的流式处理器直接按名称查执行器，仍需验证未知工具请求能否正确走兜底，不能只凭配置就认为该分支已可靠覆盖。
 
 源码：[文件工具](../src/main/java/com/hui/huiaicodemother/ai/tools/FileWriteTool.java)、[工具循环处理](../src/main/java/dev/langchain4j/service/AiServiceStreamingResponseHandler.java)。
 
@@ -389,7 +389,7 @@ sequenceDiagram
 3. 工具执行完成后，从完整 `arguments` 中读取 `relativeFilePath` 和 `content`，组装代码块并保存到 AI 历史；选择工具提示本身不追加到历史缓冲。
 4. 控制器把片段包成 JSON，返回 `ServerSentEvent`，正常结束再追加命名事件 `done`。
 5. 前端用 `URLSearchParams` 构造 `appId/message`，以 `withCredentials: true` 建立 EventSource。
-6. `onmessage` 读取 `d` 并累计到 AI 消息；`done` 关闭连接、取消加载状态，延迟刷新应用和预览。
+6. `onmessage` 读取 `d` 并累计到 AI 消息；`done` 关闭连接，重新读取对话历史并以新版本参数刷新预览，然后取消生成状态；非正常 SSE 中断进入错误分支。
 7. `MarkdownRenderer` 使用 markdown-it 渲染，highlight.js 高亮代码。
 
 **边界。** 工具完成事件表示 Java 工具已经返回，不等价于写文件成功；当前展示层没有根据 `result` 判断失败。GET 参数中携带整个需求会受到 URL 长度和访问日志记录影响；后续可先 POST 创建生成任务，再用 SSE 订阅任务。Markdown 当前开启 `html: true` 并用 `v-html` 输出，模型内容属于外部输入，需增加清洗或禁用原始 HTML；预览产物也应隔离运行。
@@ -705,9 +705,9 @@ server:
 
 ### 14.3 模型回复结束、写入完成与应用可运行如何区分
 
-**难在哪里。** 模型流正常结束可能伴随写盘失败、缺文件或构建失败；工具返回一个字符串，也不等于生成任务成功。当前部分保存异常只写日志，外部仍可能收到 `done`。
+**难在哪里。** 模型流正常结束可能伴随写盘失败、缺文件或构建失败；工具返回一个字符串，也不等于生成任务成功。原生保存与 Vue 构建异常已向外传播，并转成 `generation_error`；完整工具级事务与版本回滚仍待实现。
 
-**当前思路。** 流处理器记录回复和错误，Vue 流完成时异步构建，前端收到 `done` 后刷新预览；构建结果未回传到该事件，部署接口则会等待构建并检查结果。
+**当前思路。** 流处理器记录回复和错误，Vue 模型流结束后等待构建，成功后才发送 `done` 并刷新预览；保存和构建异常传播至流。完整任务事务与版本回滚仍待完善。
 
 **改进步骤。**
 
@@ -723,7 +723,7 @@ server:
 
 **难在哪里。** EventSource 会出现重连状态；当前 GET 一旦重发就可能再次触发生成。浏览器离开页面后，模型和写文件任务也可能继续；慢客户端还会积累消息。
 
-**当前思路。** 使用完成标志避免重复处理，`done` 主动关闭连接；部分 CONNECTING 情况被当作完成，仍需改进。
+**当前思路。** 使用完成标志避免重复处理，`done` 主动关闭连接；未收到 `done` 的中断视为失败；组件卸载时主动关闭连接并移除编辑器监听。
 
 **改进步骤。**
 
@@ -831,3 +831,9 @@ server:
 - 历史游标改为 `(createTime, id)`，恢复记忆使用明确的本轮消息 ID，避免单纯跳过最新记录。
 - 清理应用时覆盖 MySQL、Redis、服务缓存及产物，明确失败补偿策略。
 - 将模型名称、token 上限和日志策略配置化，集中管理 LangChain4j 定制补丁与兼容验证。
+
+## 2026-10-20 元素可视化修改
+
+前端通过 `/api` 同源代理读取预览，编辑器用独立浮层标记元素，不修改页面原有 class 或样式；消息校验 iframe 来源与 origin，支持 SVG、CSS 特殊字符、页面重载后的重新注入及卸载清理。发送时携带元素页面路径、标签、选择器和文本，退出编辑并调用现有 SSE 接口。HTML/多文件提示词要求输出完整文件，Vue 提示词要求先读后改。验证方法及当前边界见 [可视化修改记录](visual-editing-verification.md)。
+
+初始化及流错误统一由 `AppController` 在 `Flux.defer` 和 `onErrorResume` 中处理，网络、超时、模型鉴权和业务错误映射为受控提示。真实运行环境还必须允许后端访问模型；HTTP 健康检查和模拟模型回归无法替代真实模型请求。具体网络权限故障及复盘见 [验证记录](visual-editing-verification.md)。
