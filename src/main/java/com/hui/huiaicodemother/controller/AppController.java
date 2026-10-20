@@ -21,6 +21,7 @@ import com.hui.huiaicodemother.service.UserService;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
@@ -43,6 +44,7 @@ import java.util.Map;
  * @author 小辉
  */
 @RestController
+@Slf4j
 @RequestMapping("/app")
 public class AppController {
 
@@ -337,30 +339,45 @@ public class AppController {
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                        @RequestParam String message,
                                                        HttpServletRequest request) {
-        // 参数校验
-        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
-        ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "用户消息不能为空");
-        // 获取当前登录用户
-        User loginUser = userService.getLoginUser(request);
-        // 调用服务生成代码（流式）
-        Flux<String> contentFlux = appService.chatToGenCode(appId, message, loginUser);
-        // 转换为 ServerSentEvent 格式
-        return contentFlux
-                .map(chunk -> {
-                    // 将内容包装成JSON对象
-                    Map<String, String> wrapper = Map.of("d", chunk);
-                    String jsonData = JSONUtil.toJsonStr(wrapper);
-                    return ServerSentEvent.<String>builder()
-                            .data(jsonData)
-                            .build();
+        // Defer setup too: model/service creation can fail before producing the first token.
+        return Flux.defer(() -> {
+                    ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用ID无效");
+                    ThrowUtils.throwIf(StrUtil.isBlank(message), ErrorCode.PARAMS_ERROR, "用户消息不能为空");
+                    User loginUser = userService.getLoginUser(request);
+                    return appService.chatToGenCode(appId, message, loginUser)
+                            .map(chunk -> ServerSentEvent.<String>builder()
+                                    .data(JSONUtil.toJsonStr(Map.of("d", chunk)))
+                                    .build())
+                            .concatWith(Mono.just(ServerSentEvent.<String>builder()
+                                    .event("done").data("").build()));
                 })
-                .concatWith(Mono.just(
-                        // 发送结束事件
-                        ServerSentEvent.<String>builder()
-                                .event("done")
-                                .data("")
-                                .build()
-                ));
+                .onErrorResume(error -> {
+                    log.error("代码生成失败，appId: {}", appId, error);
+                    int code = error instanceof BusinessException business
+                            ? business.getCode() : ErrorCode.SYSTEM_ERROR.getCode();
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("generation_error")
+                            .data(JSONUtil.toJsonStr(Map.of("code", code, "message", generationErrorMessage(error))))
+                            .build());
+                });
+    }
+
+    private String generationErrorMessage(Throwable error) {
+        if (error instanceof BusinessException) return error.getMessage();
+        Throwable cause = error;
+        for (int depth = 0; cause != null && depth < 20; depth++, cause = cause.getCause()) {
+            if (cause instanceof java.net.SocketTimeoutException || cause instanceof java.net.http.HttpTimeoutException) {
+                return "AI 服务连接超时，请稍后重试。";
+            }
+            if (cause instanceof org.springframework.web.client.RestClientResponseException response
+                    && (response.getStatusCode().value() == 401 || response.getStatusCode().value() == 403)) {
+                return "AI 服务鉴权失败，请检查后端的模型 API Key 配置。";
+            }
+            if (cause instanceof java.io.IOException) {
+                return "无法连接 AI 服务，请检查后端网络权限和模型服务地址后重试。";
+            }
+        }
+        return "生成失败，请稍后重试；如持续失败，请查看后端日志。";
     }
 
 }
