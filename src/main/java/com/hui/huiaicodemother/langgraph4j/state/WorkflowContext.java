@@ -1,6 +1,7 @@
 package com.hui.huiaicodemother.langgraph4j.state;
 
 import com.hui.huiaicodemother.langgraph4j.model.ImageResource;
+import com.hui.huiaicodemother.langgraph4j.model.QualityResult;
 import com.hui.huiaicodemother.langgraph4j.model.ImageCollectionPlan;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
 import lombok.AllArgsConstructor;
@@ -77,6 +78,10 @@ public class WorkflowContext implements Serializable {
     private String errorMessage;
 
     private ImageCollectionPlan imageCollectionPlan;
+    private QualityResult qualityResult;
+    private int generationAttempts;
+    @Builder.Default
+    private int maxGenerationAttempts = 3;
 
     @Serial
     private static final long serialVersionUID = 1L;

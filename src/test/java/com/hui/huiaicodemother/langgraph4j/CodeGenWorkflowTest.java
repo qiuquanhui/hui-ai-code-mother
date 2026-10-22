@@ -7,6 +7,7 @@ import com.hui.huiaicodemother.core.builder.VueProjectBuilder;
 import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.langgraph4j.ai.ImageCollectionService;
 import com.hui.huiaicodemother.langgraph4j.state.WorkflowContext;
+import com.hui.huiaicodemother.langgraph4j.model.QualityResult;
 import com.hui.huiaicodemother.langgraph4j.model.ImageCollectionPlan;
 import com.hui.huiaicodemother.langgraph4j.model.ImageResource;
 import com.hui.huiaicodemother.langgraph4j.model.enums.ImageCategoryEnum;
@@ -34,14 +35,14 @@ import static org.mockito.Mockito.*;
 class CodeGenWorkflowTest extends WorkflowTestSupport {
     @ParameterizedTest
     @EnumSource(CodeGenTypeEnum.class)
-    void executesImagePlanningAndPersistsEachGenerationType(CodeGenTypeEnum type) throws Exception {
+    void executesQualityAndPersistsEachGenerationType(CodeGenTypeEnum type) throws Exception {
         when(router.routeCodeGenType(anyString())).thenReturn(type);
         Path root = output(type, appId);
         if (type == CodeGenTypeEnum.VUE_PROJECT) mockVueGeneration(true, true);
         WorkflowContext result = workflow.executeWorkflow("Build a website", appId);
         assertEquals(appId, result.getAppId());
         assertEquals(type, result.getGenerationType());
-        assertEquals("项目构建", result.getCurrentStep());
+        assertEquals(type == CodeGenTypeEnum.VUE_PROJECT ? "项目构建" : "代码质量检查", result.getCurrentStep());
         assertTrue(result.getEnhancedPrompt().contains("https://images.example.test/hero.png"));
         assertEquals(root, Path.of(result.getGeneratedCodeDir()));
         Path built = type == CodeGenTypeEnum.VUE_PROJECT ? root.resolve("dist") : root;
@@ -137,6 +138,70 @@ class CodeGenWorkflowTest extends WorkflowTestSupport {
         assertThrows(BusinessException.class, () -> workflow.executeWorkflow("site", 0L));
         assertThrows(BusinessException.class, () -> workflow.executeWorkflow("site", -1L));
         verifyNoInteractions(images, planner, router, builder);
+    }
+
+    @Test
+    void rejectedCodeIsRepairedWithOriginalRequirementAndFeedback() {
+        output(CodeGenTypeEnum.HTML, appId);
+        when(quality.checkCodeQuality(anyString())).thenReturn(
+                QualityResult.builder().isValid(false).errors(List.of("Missing navigation"))
+                        .suggestions(List.of("Add a menu")).build(),
+                QualityResult.builder().isValid(true).build());
+        WorkflowContext result = workflow.executeWorkflow("Build a website", appId);
+        assertEquals(2, result.getGenerationAttempts());
+        ArgumentCaptor<String> prompts = ArgumentCaptor.forClass(String.class);
+        verify(ai, times(2)).generateHtmlCodeStream(prompts.capture());
+        assertTrue(prompts.getAllValues().get(1).contains("Build a website"));
+        assertTrue(prompts.getAllValues().get(1).contains("Missing navigation"));
+        assertTrue(prompts.getAllValues().get(1).contains("Add a menu"));
+        assertTrue(prompts.getAllValues().get(1).contains("https://images.example.test/hero.png"));
+    }
+
+    @Test
+    void persistentQualityFailureStopsAfterThreeGenerations() {
+        output(CodeGenTypeEnum.HTML, appId);
+        when(quality.checkCodeQuality(anyString())).thenReturn(QualityResult.builder().isValid(false).build());
+        assertThrows(RuntimeException.class, () -> workflow.executeWorkflow("site", appId));
+        verify(ai, times(3)).generateHtmlCodeStream(anyString());
+        verifyNoInteractions(builder);
+    }
+
+    @Test
+    void qualityProviderFailureCannotBeTreatedAsPassing() {
+        output(CodeGenTypeEnum.HTML, appId);
+        when(quality.checkCodeQuality(anyString())).thenThrow(new IllegalStateException("provider failed"));
+        assertThrows(RuntimeException.class, () -> workflow.executeWorkflow("site", appId));
+        verify(ai, times(1)).generateHtmlCodeStream(anyString());
+        verifyNoInteractions(builder);
+    }
+
+    @Test
+    void nullOrIncompleteQualityResponseIsRetriedWithoutNullPointerFailure() {
+        output(CodeGenTypeEnum.HTML, appId);
+        when(quality.checkCodeQuality(anyString())).thenReturn(null, QualityResult.builder().build(),
+                QualityResult.builder().isValid(true).build());
+        assertEquals(3, workflow.executeWorkflow("site", appId).getGenerationAttempts());
+    }
+
+    @Test
+    void qualityAttemptLimitIsConfigurableAndValidated() {
+        output(CodeGenTypeEnum.HTML, appId);
+        ReflectionTestUtils.setField(workflow, "maxGenerationAttempts", 1);
+        when(quality.checkCodeQuality(anyString())).thenReturn(QualityResult.builder().isValid(false).build());
+        assertThrows(RuntimeException.class, () -> workflow.executeWorkflow("site", appId));
+        verify(ai, times(1)).generateHtmlCodeStream(anyString());
+        ReflectionTestUtils.setField(workflow, "maxGenerationAttempts", 0);
+        assertThrows(BusinessException.class, () -> workflow.executeWorkflow("site", appId));
+    }
+
+    @Test
+    void studioStylePromptInputIsConvertedToAnIsolatedWorkflowContext() {
+        var state = workflow.createWorkflow().invoke(Map.of("originalPrompt", "site")).orElseThrow();
+        WorkflowContext result = WorkflowContext.getContext(state);
+        assertTrue(result.getAppId() > 0);
+        assertEquals("site", result.getOriginalPrompt());
+        assertNotNull(result.getBuildResultDir());
+        assertTrue(result.getQualityResult().getIsValid());
     }
 
     @Test

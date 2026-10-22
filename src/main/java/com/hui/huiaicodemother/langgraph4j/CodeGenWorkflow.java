@@ -6,93 +6,124 @@ import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.exception.ErrorCode;
 import com.hui.huiaicodemother.langgraph4j.node.*;
 import com.hui.huiaicodemother.langgraph4j.state.WorkflowContext;
+import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
 import lombok.extern.slf4j.Slf4j;
-import org.bsc.langgraph4j.CompiledGraph;
-import org.bsc.langgraph4j.GraphRepresentation;
-import org.bsc.langgraph4j.GraphStateException;
-import org.bsc.langgraph4j.NodeOutput;
+import org.bsc.langgraph4j.*;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
 import org.bsc.langgraph4j.prebuilt.MessagesStateGraph;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.function.BiConsumer;
 
 import static org.bsc.langgraph4j.StateGraph.END;
 import static org.bsc.langgraph4j.StateGraph.START;
+import static org.bsc.langgraph4j.action.AsyncEdgeAction.edge_async;
+import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 
-/**
- * 代码生成工作流（实际可用）
- */
+/** Image collection, generation, bounded quality repair and optional Vue build. */
 @Slf4j
 @Service
 public class CodeGenWorkflow {
+    @Value("${langgraph.workflow.max-generation-attempts:3}")
+    private int maxGenerationAttempts = 3;
 
-    /**
-     * 创建完整的工作流
-     */
     public CompiledGraph<MessagesState<String>> createWorkflow() {
         try {
-            return new MessagesStateGraph<String>()
-                    // 添加节点 - 使用完整实现的节点
+            var graph = commonGraph()
                     .addNode("image_collector", ImageCollectorNode.create())
-                    .addNode("prompt_enhancer", PromptEnhancerNode.create())
-                    .addNode("router", RouterNode.create())
-                    .addNode("code_generator", CodeGeneratorNode.create())
-                    .addNode("project_builder", ProjectBuilderNode.create())
-
-                    // 添加边
-                    .addEdge(START, "image_collector")
-                    .addEdge("image_collector", "prompt_enhancer")
-                    .addEdge("prompt_enhancer", "router")
-                    .addEdge("router", "code_generator")
-                    .addEdge("code_generator", "project_builder")
-                    .addEdge("project_builder", END)
-
-                    // 编译工作流
-                    .compile();
+                    .addEdge(START, "initialize")
+                    .addEdge("initialize", "image_collector")
+                    .addEdge("image_collector", "prompt_enhancer");
+            return finishGraph(graph);
         } catch (GraphStateException e) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "工作流创建失败");
         }
     }
 
-    /**
-     * 执行工作流
-     */
-    public WorkflowContext executeWorkflow(String originalPrompt) {
-        return executeWorkflow(originalPrompt, IdUtil.getSnowflakeNextId());
+    protected StateGraph<MessagesState<String>> commonGraph() throws GraphStateException {
+        return new MessagesStateGraph<String>()
+                .addNode("initialize", node_async(state -> {
+                    WorkflowContext context = WorkflowContext.getContext(state);
+                    if (context == null) {
+                        Object prompt = state.data().get("originalPrompt");
+                        context = initialContext(prompt instanceof String text ? text : null, IdUtil.getSnowflakeNextId());
+                    }
+                    return WorkflowContext.saveContext(context);
+                }))
+                .addNode("prompt_enhancer", PromptEnhancerNode.create())
+                .addNode("router", RouterNode.create())
+                .addNode("code_generator", CodeGeneratorNode.create())
+                .addNode("code_quality_check", CodeQualityCheckNode.create())
+                .addNode("project_builder", ProjectBuilderNode.create());
     }
 
-    public WorkflowContext executeWorkflow(String originalPrompt, Long appId) {
-        if (StrUtil.isBlank(originalPrompt) || appId == null || appId <= 0) {
+    protected CompiledGraph<MessagesState<String>> finishGraph(StateGraph<MessagesState<String>> graph)
+            throws GraphStateException {
+        var compiled = graph.addEdge("prompt_enhancer", "router")
+                .addEdge("router", "code_generator")
+                .addEdge("code_generator", "code_quality_check")
+                .addConditionalEdges("code_quality_check", edge_async(this::routeAfterQualityCheck),
+                        Map.of("build", "project_builder", "skip_build", END, "fail", "code_generator"))
+                .addEdge("project_builder", END).compile();
+        compiled.setMaxIterations(100);
+        return compiled;
+    }
+
+    protected String routeAfterQualityCheck(MessagesState<String> state) {
+        WorkflowContext context = WorkflowContext.getContext(state);
+        var quality = context.getQualityResult();
+        if (quality == null || !Boolean.TRUE.equals(quality.getIsValid())) {
+            if (context.getGenerationAttempts() >= context.getMaxGenerationAttempts()) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "代码质检未通过，已达到最大生成次数");
+            }
+            return "fail";
+        }
+        return context.getGenerationType() == CodeGenTypeEnum.VUE_PROJECT ? "build" : "skip_build";
+    }
+
+    protected WorkflowContext initialContext(String prompt, Long appId) {
+        if (StrUtil.isBlank(prompt) || appId == null || appId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "提示词不能为空，应用 ID 必须为正数");
         }
-        CompiledGraph<MessagesState<String>> workflow = createWorkflow();
-
-        // 初始化 WorkflowContext
-        WorkflowContext initialContext = WorkflowContext.builder()
-                .appId(appId)
-                .originalPrompt(originalPrompt)
-                .currentStep("初始化")
-                .build();
-
-        GraphRepresentation graph = workflow.getGraph(GraphRepresentation.Type.MERMAID);
-        log.info("工作流图:\n{}", graph.content());
-        log.info("开始执行代码生成工作流");
-
-        WorkflowContext finalContext = null;
-        int stepCounter = 1;
-        for (NodeOutput<MessagesState<String>> step : workflow.stream(
-                Map.of(WorkflowContext.WORKFLOW_CONTEXT_KEY, initialContext))) {
-            log.info("--- 第 {} 步完成 ---", stepCounter);
-            // 显示当前状态
-            WorkflowContext currentContext = WorkflowContext.getContext(step.state());
-            if (currentContext != null) {
-                finalContext = currentContext;
-                log.info("当前步骤上下文: {}", currentContext);
-            }
-            stepCounter++;
+        if (maxGenerationAttempts < 1 || maxGenerationAttempts > 10) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "最大生成次数必须在 1 到 10 之间");
         }
-        log.info("代码生成工作流执行完成！");
-        return finalContext;
+        return WorkflowContext.builder().appId(appId).originalPrompt(prompt).currentStep("初始化")
+                .maxGenerationAttempts(maxGenerationAttempts).build();
+    }
+
+    public WorkflowContext executeWorkflow(String prompt) {
+        return executeWorkflow(prompt, IdUtil.getSnowflakeNextId());
+    }
+
+    public WorkflowContext executeWorkflow(String prompt, Long appId) {
+        return execute(initialContext(prompt, appId), (event, data) -> {});
+    }
+
+    protected WorkflowContext execute(WorkflowContext context, BiConsumer<String, Map<String, Object>> listener) {
+        return runGraph(createWorkflow(), context, RunnableConfig.builder().build(), listener);
+    }
+
+    protected WorkflowContext runGraph(CompiledGraph<MessagesState<String>> graph, WorkflowContext context,
+                                       RunnableConfig config, BiConsumer<String, Map<String, Object>> listener) {
+        WorkflowContext result = null;
+        int number = 0;
+        for (var step : graph.stream(WorkflowContext.saveContext(context), config)) {
+            if (Thread.currentThread().isInterrupted()) throw new CancellationException("工作流已取消");
+            WorkflowContext current = WorkflowContext.getContext(step.state());
+            if (current == null) continue;
+            result = current;
+            if (!START.equals(step.node()) && !END.equals(step.node())) {
+                listener.accept("step_completed", Map.of("stepNumber", ++number, "node", step.node(),
+                        "currentStep", current.getCurrentStep()));
+            }
+        }
+        if (result == null || result.getBuildResultDir() == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "工作流未产出可用结果");
+        }
+        return result;
     }
 }

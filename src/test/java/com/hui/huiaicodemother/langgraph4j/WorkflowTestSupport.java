@@ -26,6 +26,7 @@ import static org.mockito.Mockito.*;
 
 /** Test-only model and provider substitutions; files and compiled graphs remain real. */
 abstract class WorkflowTestSupport {
+    protected final com.hui.huiaicodemother.langgraph4j.ai.CodeQualityCheckService quality = mock(com.hui.huiaicodemother.langgraph4j.ai.CodeQualityCheckService.class);
     protected final com.hui.huiaicodemother.langgraph4j.ai.ImageCollectionPlanService planner = mock(com.hui.huiaicodemother.langgraph4j.ai.ImageCollectionPlanService.class);
     protected final com.hui.huiaicodemother.langgraph4j.tools.ImageSearchTool contentTool = mock(com.hui.huiaicodemother.langgraph4j.tools.ImageSearchTool.class);
     protected final com.hui.huiaicodemother.langgraph4j.tools.UndrawIllustrationTool illustrationTool = mock(com.hui.huiaicodemother.langgraph4j.tools.UndrawIllustrationTool.class);
@@ -57,6 +58,7 @@ abstract class WorkflowTestSupport {
         when(ai.generateHtmlCodeStream(anyString())).thenReturn(Flux.just("```html\n<h1>generated</h1>\n```"));
         when(ai.generateMultiFileCodeStream(anyString())).thenReturn(Flux.just(
                 "```html\n<h1>generated</h1>\n```\n```css\nh1{color:red}\n```\n```javascript\nconsole.log(1)\n```"));
+        when(quality.checkCodeQuality(anyString())).thenReturn(com.hui.huiaicodemother.langgraph4j.model.QualityResult.builder().isValid(true).build());
         var defaultPlan = new com.hui.huiaicodemother.langgraph4j.model.ImageCollectionPlan();
         defaultPlan.setContentImageTasks(List.of(new com.hui.huiaicodemother.langgraph4j.model.ImageCollectionPlan.ImageSearchTask("hero")));
         when(planner.planImageCollection(anyString())).thenReturn(defaultPlan);
@@ -64,6 +66,7 @@ abstract class WorkflowTestSupport {
                 .category(com.hui.huiaicodemother.langgraph4j.model.enums.ImageCategoryEnum.CONTENT)
                 .description("Hero").url("https://images.example.test/hero.png").build()));
         application = new GenericApplicationContext();
+        application.getBeanFactory().registerSingleton("quality", quality);
         application.getBeanFactory().registerSingleton("planner", planner);
         application.getBeanFactory().registerSingleton("contentTool", contentTool);
         application.getBeanFactory().registerSingleton("illustrationTool", illustrationTool);

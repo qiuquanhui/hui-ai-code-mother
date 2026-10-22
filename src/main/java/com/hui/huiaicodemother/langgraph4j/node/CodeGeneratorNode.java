@@ -3,6 +3,7 @@ package com.hui.huiaicodemother.langgraph4j.node;
 import com.hui.huiaicodemother.constant.AppConstant;
 import com.hui.huiaicodemother.core.AiCodeGeneratorFacade;
 import com.hui.huiaicodemother.langgraph4j.state.WorkflowContext;
+import com.hui.huiaicodemother.langgraph4j.model.QualityResult;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
 import com.hui.huiaicodemother.utils.SpringContextUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +27,9 @@ public class CodeGeneratorNode {
             log.info("执行节点: 代码生成");
 
             // 使用增强提示词作为发给 AI 的用户消息
-            String userMessage = context.getEnhancedPrompt();
+            String userMessage = buildUserMessage(context);
+            context.setGenerationAttempts(context.getGenerationAttempts() + 1);
+            context.setBuildResultDir(null);
             CodeGenTypeEnum generationType = context.getGenerationType();
             // 获取 AI 代码生成外观服务
             AiCodeGeneratorFacade codeGeneratorFacade = SpringContextUtil.getBean(AiCodeGeneratorFacade.class);
@@ -45,5 +48,16 @@ public class CodeGeneratorNode {
             context.setGeneratedCodeDir(generatedCodeDir);
             return WorkflowContext.saveContext(context);
         });
+    }
+
+    static String buildUserMessage(WorkflowContext context) {
+        StringBuilder prompt = new StringBuilder(context.getEnhancedPrompt());
+        QualityResult result = context.getQualityResult();
+        if (result != null && !Boolean.TRUE.equals(result.getIsValid())) {
+            prompt.append("\n\n## 上次生成的代码未通过质检，请在保留原需求的基础上修复：\n");
+            if (result.getErrors() != null) result.getErrors().forEach(error -> prompt.append("- ").append(error).append('\n'));
+            if (result.getSuggestions() != null) result.getSuggestions().forEach(suggestion -> prompt.append("建议：").append(suggestion).append('\n'));
+        }
+        return prompt.toString();
     }
 }

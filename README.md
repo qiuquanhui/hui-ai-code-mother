@@ -23,6 +23,8 @@
 
 - [图片计划与内部并行收集](docs/langgraph-image-planning.md)
 
+- [代码质检与有限修复](docs/langgraph-code-quality.md)
+
 ## 技术栈
 
 ### 后端

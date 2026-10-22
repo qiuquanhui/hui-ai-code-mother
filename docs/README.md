@@ -24,3 +24,4 @@
 ## LangGraph 按功能阅读
 
 - [图片计划与内部并行收集](langgraph-image-planning.md)
+- [代码质检与有限修复](langgraph-code-quality.md)

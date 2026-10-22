@@ -75,3 +75,7 @@ pexels:
 dashscope:
   api-key: ${DASHSCOPE_API_KEY:}
   image-model: ${DASHSCOPE_IMAGE_MODEL:wan2.2-t2i-flash}
+
+langgraph:
+  workflow:
+    max-generation-attempts: 3
