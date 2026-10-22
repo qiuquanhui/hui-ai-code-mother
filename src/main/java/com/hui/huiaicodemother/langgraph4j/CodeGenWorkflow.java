@@ -13,9 +13,11 @@ import org.bsc.langgraph4j.prebuilt.MessagesState;
 import org.bsc.langgraph4j.prebuilt.MessagesStateGraph;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Primary;
 
 import java.util.Map;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.Executors;
 import java.util.function.BiConsumer;
 
 import static org.bsc.langgraph4j.StateGraph.END;
@@ -26,6 +28,7 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 /** Image collection, generation, bounded quality repair and optional Vue build. */
 @Slf4j
 @Service
+@Primary
 public class CodeGenWorkflow {
     @Value("${langgraph.workflow.max-generation-attempts:3}")
     private int maxGenerationAttempts = 3;
@@ -105,6 +108,14 @@ public class CodeGenWorkflow {
 
     protected WorkflowContext execute(WorkflowContext context, BiConsumer<String, Map<String, Object>> listener) {
         return runGraph(createWorkflow(), context, RunnableConfig.builder().build(), listener);
+    }
+
+    protected WorkflowContext executeWithParallelImages(WorkflowContext context,
+                                                        BiConsumer<String, Map<String, Object>> listener) {
+        try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+            return runGraph(createWorkflow(), context, RunnableConfig.builder()
+                    .addParallelNodeExecutor("image_plan", pool).build(), listener);
+        }
     }
 
     protected WorkflowContext runGraph(CompiledGraph<MessagesState<String>> graph, WorkflowContext context,

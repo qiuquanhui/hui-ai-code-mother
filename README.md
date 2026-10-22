@@ -25,6 +25,8 @@
 
 - [代码质检与有限修复](docs/langgraph-code-quality.md)
 
+- [显式并发图片分支](docs/langgraph-concurrent-images.md)
+
 ## 技术栈
 
 ### 后端

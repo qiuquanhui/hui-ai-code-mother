@@ -25,3 +25,4 @@
 
 - [图片计划与内部并行收集](langgraph-image-planning.md)
 - [代码质检与有限修复](langgraph-code-quality.md)
+- [显式并发图片分支](langgraph-concurrent-images.md)

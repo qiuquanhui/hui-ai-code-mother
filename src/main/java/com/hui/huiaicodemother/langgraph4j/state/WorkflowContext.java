@@ -1,8 +1,8 @@
 package com.hui.huiaicodemother.langgraph4j.state;
 
 import com.hui.huiaicodemother.langgraph4j.model.ImageResource;
-import com.hui.huiaicodemother.langgraph4j.model.QualityResult;
 import com.hui.huiaicodemother.langgraph4j.model.ImageCollectionPlan;
+import com.hui.huiaicodemother.langgraph4j.model.QualityResult;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,7 +19,7 @@ import java.util.Map;
  * 工作流上下文 - 存储所有状态信息
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class WorkflowContext implements Serializable {
@@ -28,6 +28,10 @@ public class WorkflowContext implements Serializable {
      * WorkflowContext 在 MessagesState 中的存储key
      */
     public static final String WORKFLOW_CONTEXT_KEY = "workflowContext";
+    public static final String CONTENT_IMAGES_KEY = "contentImages";
+    public static final String ILLUSTRATIONS_KEY = "illustrations";
+    public static final String DIAGRAMS_KEY = "diagrams";
+    public static final String LOGOS_KEY = "logos";
 
     /** 应用 ID，用于隔离生成目录和对话记忆。 */
     private Long appId;
@@ -77,8 +81,12 @@ public class WorkflowContext implements Serializable {
      */
     private String errorMessage;
 
-    private ImageCollectionPlan imageCollectionPlan;
     private QualityResult qualityResult;
+    private ImageCollectionPlan imageCollectionPlan;
+    private List<ImageResource> contentImages;
+    private List<ImageResource> illustrations;
+    private List<ImageResource> diagrams;
+    private List<ImageResource> logos;
     private int generationAttempts;
     @Builder.Default
     private int maxGenerationAttempts = 3;
@@ -92,7 +100,20 @@ public class WorkflowContext implements Serializable {
      * 从 MessagesState 中获取 WorkflowContext
      */
     public static WorkflowContext getContext(MessagesState<String> state) {
-        return (WorkflowContext) state.data().get(WORKFLOW_CONTEXT_KEY);
+        WorkflowContext saved = (WorkflowContext) state.data().get(WORKFLOW_CONTEXT_KEY);
+        if (saved == null) return null;
+        // Parallel branches write distinct state keys, never the shared context object.
+        WorkflowContext context = saved.toBuilder().build();
+        if (state.data().containsKey(CONTENT_IMAGES_KEY)) context.setContentImages(images(state, CONTENT_IMAGES_KEY));
+        if (state.data().containsKey(ILLUSTRATIONS_KEY)) context.setIllustrations(images(state, ILLUSTRATIONS_KEY));
+        if (state.data().containsKey(DIAGRAMS_KEY)) context.setDiagrams(images(state, DIAGRAMS_KEY));
+        if (state.data().containsKey(LOGOS_KEY)) context.setLogos(images(state, LOGOS_KEY));
+        return context;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<ImageResource> images(MessagesState<String> state, String key) {
+        return List.copyOf((List<ImageResource>) state.data().get(key));
     }
 
     /**
