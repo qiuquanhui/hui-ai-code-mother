@@ -11,6 +11,7 @@
 | [AI 路由测试与 Brotli 响应截断排查](ai-routing-troubleshooting.md) | 原始异常、客户端/压缩对照实验、解码原因、gzip 修复与复现命令 | HTTP 200 但同步模型调用解析失败时定位问题 |
 | [可视化修改实现与无头验证](visual-editing-verification.md) | 同步范围、问题修复、三种模式与权限/错误的无头回归 | 元素可视化修改与回归复现 |
 | [LangGraph 工作流、图片配置与验证](langgraph-sync-verification.md) | 同步差异、Pexels/DashScope Key、Mermaid/COS 前置条件、48 项测试与未联调边界 | 启用独立工作流和真实图片功能前必读 |
+| [LangGraph 质检、并发、子图与流式接口](langgraph-incremental-workflows.md) | 最新参考增量、有限质检重试、三种图、管理员 SSE、Studio 开关和回归范围 | 使用本轮新增能力前阅读 |
 
 ## 维护约定
 
@@ -28,3 +29,4 @@
 - [显式并发图片分支](langgraph-concurrent-images.md)
 - [图片收集子图](langgraph-image-subgraphs.md)
 - [工作流 HTTP 与流式事件](langgraph-workflow-streaming.md)
+- [Studio 可视化调试](langgraph-studio-debugging.md)

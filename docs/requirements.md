@@ -36,7 +36,7 @@
 | FR-12 | 页面元素可视化编辑 | 预览中悬浮、选中元素，将页面路径、标签、选择器及文本提交给 AI；Vue 使用文件工具增量修改 | 已实现；三种模式隔离无头回归及真实模型博客副本编辑通过 |
 | FR-13 | 下载应用源码 | 创建者从对话页下载 `{appId}.zip`；打包生成目录，过滤依赖、构建产物、日志及部分配置文件 | 已实现；下载权限和压缩包内容尚待端到端验收 |
 | FR-14 | 部署封面 | 部署返回后，虚拟线程用 Chrome 截图、压缩 JPEG、上传 COS 并更新 `cover`；前端补全封面 URL 协议，卡片加载失败显示占位图 | 已实现；无截图状态、失败重试或浏览器并发隔离，完整链路尚待验收 |
-| FR-15 | 带素材的独立生成工作流 | 后端依次执行图片收集、提示词增强、类型路由、代码生成和构建；支持 Pexels、unDraw、DashScope Logo 与 Mermaid 架构图 | 已实现独立 Service，尚未接入聊天 SSE；实际 Pexels/Logo 功能需相应 Key，架构图需 Mermaid CLI 和 COS；真实云服务未联调 |
+| FR-15 | 带素材的独立生成工作流 | 图片计划/收集、提示词增强、路由、生成、质检与 Vue 构建；支持有限修复重试、并发分支与子图，以及管理员专用同步/Flux/SSE 入口 | 已实现；现有聊天接口尚未切换；Pexels/Logo 需 Key，架构图需 CLI/COS，真实外部服务未完成本轮联调；Studio 默认关闭 |
 
 主要实现依据：[AppController](../src/main/java/com/hui/huiaicodemother/controller/AppController.java)、[AppServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/AppServiceImpl.java)、[UserServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/UserServiceImpl.java)、[对话页面](../hui-ai-code-mother-frontend/src/pages/app/AppChatPage.vue)。
 
@@ -94,7 +94,7 @@
 
 ## 7. 后续范围与优先级
 
-LangGraph 的验收边界：2026-10-21 已通过 48 项定向自动化测试与打包，其中四个工作流相关测试类共 24 项；外部服务使用 Mock／本地 HTTP，未完成真实图片搜索、Logo 生成、架构图转换上传或工作流接入聊天 SSE 的验收。配置要求及具体测试范围见 [LangGraph 同步与验证](langgraph-sync-verification.md)。
+LangGraph 的首次验收为 48 项自动化测试与打包；本轮已增加质检重试、并发分支、子图、SSE 编码/取消、权限和 Studio 的回归。外部服务使用 Mock／本地 HTTP，真实图片搜索、Logo 生成、架构图转换上传和工作流接入现有聊天接口尚未完成本轮验收。当前范围见 [增量工作流记录](langgraph-incremental-workflows.md)，Key 配置见 [首次同步说明](langgraph-sync-verification.md)。
 
 - P0：收敛文件读写范围，明确预览访问策略；将已接入的 Vue 本机构建迁入隔离环境，完善版本化产物发布。
 - P1：生成任务状态、应用级并发控制、断连取消和错误处理；稳定历史游标及上下文恢复；删除资源清理。

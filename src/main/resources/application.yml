@@ -79,3 +79,5 @@ dashscope:
 langgraph:
   workflow:
     max-generation-attempts: 3
+  studio:
+    enabled: false

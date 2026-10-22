@@ -15,21 +15,18 @@
 - [文档索引](docs/README.md)
 - [可视化修改实现与无头验证](docs/visual-editing-verification.md)
 - [LangGraph 工作流、图片配置与验证范围](docs/langgraph-sync-verification.md)
+- [LangGraph 质检、并发、子图与流式接口](docs/langgraph-incremental-workflows.md)
+- [图片计划与内部并行收集](docs/langgraph-image-planning.md)
+- [代码质检与有限修复](docs/langgraph-code-quality.md)
+- [显式并发图片分支](docs/langgraph-concurrent-images.md)
+- [图片收集子图](docs/langgraph-image-subgraphs.md)
+- [工作流 HTTP 与流式事件](docs/langgraph-workflow-streaming.md)
+- [Studio 可视化调试](docs/langgraph-studio-debugging.md)
 - [需求文档](docs/requirements.md)
 - [方案设计](docs/solution-design.md)
 - [项目总结](docs/project-summary.md)
 - [Vue 构建与故障排查](docs/vue-build-troubleshooting.md)
 - [AI 路由测试与 Brotli 响应截断排查](docs/ai-routing-troubleshooting.md)
-
-- [图片计划与内部并行收集](docs/langgraph-image-planning.md)
-
-- [代码质检与有限修复](docs/langgraph-code-quality.md)
-
-- [显式并发图片分支](docs/langgraph-concurrent-images.md)
-
-- [图片收集子图](docs/langgraph-image-subgraphs.md)
-
-- [工作流 HTTP 与流式事件](docs/langgraph-workflow-streaming.md)
 
 ## 技术栈
 
@@ -39,7 +36,7 @@
 - Spring Boot：Web / AOP
 - 数据访问：MyBatis-Flex + HikariCP + MySQL
 - AI 编排：LangChain4j + OpenAI 兼容模型接口 + 工具调用
-- 独立生成工作流：LangGraph4j 1.6.0-rc2；图片工具使用 Pexels、unDraw、DashScope SDK 2.21.1 和 Mermaid CLI
+- 独立生成工作流：LangGraph4j / Studio 1.6.0-rc2，支持质检修复、并发图片收集和子图；图片工具使用 Pexels、unDraw、DashScope SDK 2.21.1 和 Mermaid CLI
 - 会话与上下文：Spring Session Redis + Redis Chat Memory + Caffeine
 - 工具库：Hutool
 - 网页截图：Selenium + WebDriverManager + Chrome
@@ -84,7 +81,9 @@ $env:DASHSCOPE_API_KEY = '你的DashScopeKey'
 
 Logo 默认模型为 `wan2.2-t2i-flash`，可通过 `DASHSCOPE_IMAGE_MODEL` 覆盖。也可以将 `pexels.api-key`、`dashscope.api-key`、`dashscope.image-model` 写入被 Git 忽略的 `application-local.yml`；密钥不得提交。
 
-工作流目前通过后端 `CodeGenWorkflow.executeWorkflow(prompt, appId)` 独立调用，尚未接入现有聊天 SSE 接口。2026-10-22 提交前重新执行 Maven `verify`，48 项定向测试及打包通过；模型、图片云服务、COS 上传使用 Mock／本地 HTTP，**真实云服务尚未联调，不能据此认为配置密钥后已验收通过**。四个 LangGraph 测试类的用例数量和完整边界见 [同步与验证记录](docs/langgraph-sync-verification.md)。
+独立工作流提供 `CodeGenWorkflow`、`CodeGenConcurrentWorkflow` 和 `CodeGenSubgraphWorkflow`，支持质检不通过后修复，默认最多生成三次。普通工作流另有管理员专用的 `/api/workflow/execute`、`execute-flux`、`execute-sse` 入口；现有 `/app` 聊天生成流程没有切换到这些入口。Studio 默认关闭，需显式启用并在本机调试。新增接口、测试范围和运行前提见 [本轮增量记录](docs/langgraph-incremental-workflows.md)。
+
+此前五节点版本已通过 48 项测试；本轮 Maven `verify` 通过 92 项定向测试、Spring Boot 启动和 JAR 打包，增加了质检、并发与流式接口验证。模型、图片云服务和 COS 上传使用 Mock／本地 HTTP，**真实云服务尚未完成本轮联调，不能据此认为配置密钥后已验收通过**。
 
 可视化编辑已通过 21 项后端回归、三种模式无头测试及真实模型博客副本验证。模型连接失败时会显示明确错误；排障和复现步骤见 [可视化修改记录](docs/visual-editing-verification.md)。
 
@@ -107,7 +106,7 @@ hui-ai-code-mother
 │   ├── core                   # 生成门面、解析器、保存器、流处理器与 Vue 构建器
 │   ├── exception              # 异常处理（全局异常、错误码）
 │   ├── generator              # MyBatis-Flex 代码生成器
-│   ├── langgraph4j            # 独立五节点生成工作流、状态、图片 AI 服务与工具
+│   ├── langgraph4j            # 质检修复、并发/子图工作流、Studio、图片 AI 服务与工具
 │   ├── mapper                 # 数据访问层
 │   ├── model                  # DTO / 实体 / VO / 枚举
 │   └── service                # 业务逻辑层

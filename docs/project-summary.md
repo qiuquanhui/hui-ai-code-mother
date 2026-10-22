@@ -11,7 +11,7 @@
 | 用户与权限 | 注册登录、用户管理、Redis Session、管理员注解校验 | [UserServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/UserServiceImpl.java) |
 | 应用管理 | 创建、个人列表、精选列表、编辑、删除与管理员维护 | [AppController](../src/main/java/com/hui/huiaicodemother/controller/AppController.java) |
 | AI 生成 | HTML、多文件、Vue 工程三种后端生成方式 | [AiCodeGeneratorFacade](../src/main/java/com/hui/huiaicodemother/core/AiCodeGeneratorFacade.java) |
-| 独立工作流 | LangGraph4j 五节点编排及图片工具；尚未接入聊天 SSE，真实云服务未联调 | [工作流入口](../src/main/java/com/hui/huiaicodemother/langgraph4j/CodeGenWorkflow.java) |
+| 独立工作流 | LangGraph4j 质检重试、并发分支/子图和管理员独立 SSE；现有聊天流程未切换，真实云服务未完成本轮联调 | [工作流入口](../src/main/java/com/hui/huiaicodemother/langgraph4j/CodeGenWorkflow.java) |
 | 需求路由 | 创建应用时用普通模型选择生成类型，对话页和详情展示类型 | [路由服务](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGenTypeRoutingService.java) |
 | 上下文管理 | 应用级 AI Service、Redis 记忆、MySQL 历史恢复、Caffeine 缓存 | [AI 工厂](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGeneratorServiceFactory.java) |
 | 工具过程展示 | 定制流式工具回调，内部消息转成可读文本和代码块 | [JsonMessageStreamHandler](../src/main/java/com/hui/huiaicodemother/core/handler/JsonMessageStreamHandler.java) |
@@ -57,6 +57,14 @@
 **新增依赖可能改变已有客户端行为。** 截图依赖引入 Apache HTTP 和 Brotli 解码后，原有同步模型调用出现 HTTP 200 但正文只剩 `{` 的故障。通过相同输入下对比客户端、压缩设置和读取方式，再检查实际依赖实现，定位到解压与预读的组合问题；使用 gzip 规避后回到原测试确认结果。依赖升级应覆盖这条跨模块回归。
 
 ## 4. 验证记录
+
+### 2026-10-22：最新参考代码的质检、并发、子图与流式增量
+
+补齐图片规划与内部并发收集、代码质检/有限修复、显式并发分支和四个子图，以及管理员专用同步/Flux/SSE 控制器和默认关闭的 Studio。依赖新增 `langgraph4j-studio-springboot:1.6.0-rc2`，与参考项目一致。
+
+最终 Maven `verify` 为 `BUILD SUCCESS`：19 个测试类、92 项通过，失败/错误/跳过均为 0；Spring Boot 启动和可执行 JAR 打包通过。新测试验证真实图路由、图片任务同时执行、分支结果合并、质检 JSON、修复上限、HTTP SSE 编码、管理员权限、订阅取消和 Studio 开关；沿用原有文件操作、构建与流式错误回归。
+
+模型、Pexels/unDraw/DashScope、Mermaid 转换和 COS 上传使用 Mock／本地 HTTP 或替代实现，未进行本轮真实云端联调，也未人工验收静态演示页。需要两个图片 Key、原有 ChatModel 和 MySQL/Redis，以及实际使用架构图时的 Mermaid CLI/COS。完整差异、接口、配置和复现命令见 [增量工作流记录](langgraph-incremental-workflows.md)，拆分后的最终复验日志位于 `tmp/langgraph-feature-commits/validation-6.log`。
 
 ### 2026-10-21：LangGraph 工作流同步
 
@@ -152,3 +160,7 @@
 ## 2026-10-20 可视化修改
 
 已同步参考项目第 9 期的元素选择、三种模式提示词和五类文件工具，并补充应用目录限制、唯一替换、真实工具结果、构建后完成及预览刷新。实现与本次自动验证边界见 [可视化修改记录](visual-editing-verification.md)。
+
+### 2026-10-22：按功能拆分文档与提交
+
+将增量改动按图片计划、质检修复、显式并发分支、图片子图、管理员流式接口、Studio 六个功能依次提交，每个提交带对应测试和功能文档。各暂存树导出独立快照验证，累计用例依次为 51、63、70、77、90、92，失败/错误/跳过均为 0；最后一个快照执行 Maven `verify` 并打包。完整分组、日志路径与云服务未联调边界见 [按功能提交的独立验证](langgraph-incremental-workflows.md#按功能提交的独立验证)。

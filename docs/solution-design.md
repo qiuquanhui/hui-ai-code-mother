@@ -30,7 +30,7 @@
 | 前端 | Vue 3、TypeScript、Vite 7、Ant Design Vue、Pinia、Vue Router | 用户界面、应用/对话管理、Markdown 展示、iframe 预览 |
 | HTTP 接口 | Spring Boot 3.5.4、Java 21、Spring MVC、Reactor Flux | REST API、SSE 响应、权限与异常处理 |
 | AI 编排 | LangChain4j 1.1.0 / 1.1.0-beta7、OpenAI 兼容接口 | 提示词、模型调用、记忆窗口、工具执行 |
-| 独立工作流 | LangGraph4j 1.6.0-rc2、DashScope SDK 2.21.1 | 五节点生成链与图片工具；尚未接入聊天 SSE |
+| 独立工作流 | LangGraph4j / Studio 1.6.0-rc2、DashScope SDK 2.21.1 | 有限质检重试、并发分支/子图、图片工具和管理员独立 SSE；尚未切换现有聊天接口 |
 | 持久化 | MySQL、MyBatis-Flex 1.11.1、HikariCP | 用户、应用、业务对话历史 |
 | 会话与记忆 | Spring Session Redis、RedisChatMemoryStore | 登录态共享、模型上下文存储 |
 | 进程内缓存 | Caffeine | 应用级 AI Service 实例缓存 |
@@ -110,9 +110,9 @@ Vue 模型 Bean 名为 `reasoningStreamingChatModel`，但当前实际硬编码�
 
 ### 4.1 独立 LangGraph 工作流
 
-`CodeGenWorkflow` 作为 Spring Service 提供 `executeWorkflow(prompt, appId)`，依次执行 `ImageCollectorNode → PromptEnhancerNode → RouterNode → CodeGeneratorNode → ProjectBuilderNode`。图片收集结果用于增强提示词；类型路由失败回退 HTML；代码生成复用现有门面；Vue 构建成功并检查 `dist/index.html` 后才返回构建目录。
+`CodeGenWorkflow` 作为 Spring Service 提供 `executeWorkflow(prompt, appId)`，初始化后依次执行 `ImageCollectorNode → PromptEnhancerNode → RouterNode → CodeGeneratorNode → CodeQualityCheckNode`。图片节点先生成计划、再并行执行图片任务；类型路由失败回退 HTML。质检通过后，HTML/多文件直接返回源码目录，Vue 经 `ProjectBuilderNode` 构建并检查 `dist/index.html` 后才成功。质检未通过时保留原需求并附加错误/建议，最多生成三次；质检服务异常不会被当作通过。
 
-显式 `appId` 用于隔离输出目录和模型记忆。无 ID 的独立调用分配唯一 ID，但不会创建数据库应用记录。图片服务失败可降级，生成或构建失败向调用方传播。该入口没有接入现有聊天 SSE，也不自动完成应用入库、业务历史持久化或部署。
+显式 `appId` 用于隔离输出目录和模型记忆。无 ID 的独立调用分配唯一 ID，但不会创建数据库应用记录。图片服务失败可降级，生成、质检或构建失败向调用方传播。新增 `CodeGenConcurrentWorkflow` 和 `CodeGenSubgraphWorkflow` 分别使用显式并发节点或四个子图收集素材，分支状态独立写入后汇总。管理员可通过 `/workflow` 下的同步、Flux 或 SseEmitter 接口执行普通工作流，现有 `/app` 聊天接口仍使用原流程；这些独立入口不自动完成应用入库、业务历史持久化或部署。设计和验证细节见 [增量工作流记录](langgraph-incremental-workflows.md)。
 
 Pexels 搜图需要 `PEXELS_API_KEY`，DashScope Logo 生成需要 `DASHSCOPE_API_KEY`；模型可用 `DASHSCOPE_IMAGE_MODEL` 覆盖，默认 `wan2.2-t2i-flash`。Mermaid 架构图还需要 PATH 中可执行的 CLI 和可用 COS 上传配置。缺少图片 Key 返回空列表；图编排测试使用 Mock／本地 HTTP，不代表供应商线上接口可用。完整配置、源码与验证范围见 [LangGraph 同步与验证](langgraph-sync-verification.md)。
 

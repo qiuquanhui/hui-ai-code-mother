@@ -25,6 +25,7 @@ class HuiAiCodeMotherApplicationTests {
         assertNotNull(applicationContext.getBean(ImageCollectionPlanService.class));
         assertNotNull(applicationContext.getBean(CodeGenConcurrentWorkflow.class));
         assertNotNull(applicationContext.getBean(CodeGenSubgraphWorkflow.class));
+        assertFalse(applicationContext.containsBean("initServletBean"));
         assertSame(applicationContext.getBean(CodeGenWorkflow.class), SpringContextUtil.getBean(CodeGenWorkflow.class));
     }
 
