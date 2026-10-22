@@ -27,6 +27,8 @@
 
 - [显式并发图片分支](docs/langgraph-concurrent-images.md)
 
+- [图片收集子图](docs/langgraph-image-subgraphs.md)
+
 ## 技术栈
 
 ### 后端

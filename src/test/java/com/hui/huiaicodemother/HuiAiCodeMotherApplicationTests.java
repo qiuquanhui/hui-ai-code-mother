@@ -5,6 +5,7 @@ import com.hui.huiaicodemother.langgraph4j.ai.ImageCollectionService;
 import com.hui.huiaicodemother.langgraph4j.ai.CodeQualityCheckService;
 import com.hui.huiaicodemother.langgraph4j.ai.ImageCollectionPlanService;
 import com.hui.huiaicodemother.langgraph4j.CodeGenConcurrentWorkflow;
+import com.hui.huiaicodemother.langgraph4j.CodeGenSubgraphWorkflow;
 import com.hui.huiaicodemother.utils.SpringContextUtil;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,6 +24,7 @@ class HuiAiCodeMotherApplicationTests {
         assertNotNull(applicationContext.getBean(CodeQualityCheckService.class));
         assertNotNull(applicationContext.getBean(ImageCollectionPlanService.class));
         assertNotNull(applicationContext.getBean(CodeGenConcurrentWorkflow.class));
+        assertNotNull(applicationContext.getBean(CodeGenSubgraphWorkflow.class));
         assertSame(applicationContext.getBean(CodeGenWorkflow.class), SpringContextUtil.getBean(CodeGenWorkflow.class));
     }
 
