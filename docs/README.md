@@ -20,3 +20,7 @@
 - 数据库、模型密钥等本机配置放在被 Git 忽略的 `application-local.yml` 中，不写入文档或提交。
 
 项目入口：[仓库 README](../README.md)。
+
+## LangGraph 按功能阅读
+
+- [图片计划与内部并行收集](langgraph-image-planning.md)

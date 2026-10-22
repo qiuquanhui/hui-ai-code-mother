@@ -25,10 +25,11 @@ class ImageCollectionServiceTest {
             application.registerBean(PropertySourcesPlaceholderConfigurer.class);
             application.getBeanFactory().registerSingleton("chatModel", chatModel);
             application.getBeanFactory().registerSingleton("cosManager", mock(CosManager.class));
-            application.register(ImageCollectionServiceFactory.class, ImageSearchTool.class,
+            application.register(ImageCollectionServiceFactory.class, ImageCollectionPlanServiceFactory.class, ImageSearchTool.class,
                     LogoGeneratorTool.class, MermaidDiagramTool.class, UndrawIllustrationTool.class);
             application.refresh();
             assertNotNull(application.getBean(ImageCollectionService.class));
+            assertNotNull(application.getBean(ImageCollectionPlanService.class));
             assertTrue(application.getBean(ImageSearchTool.class).searchContentImages("test").isEmpty());
             assertTrue(application.getBean(LogoGeneratorTool.class).generateLogos("test").isEmpty());
             verifyNoInteractions(chatModel);

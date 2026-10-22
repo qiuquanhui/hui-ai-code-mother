@@ -21,6 +21,8 @@
 - [Vue 构建与故障排查](docs/vue-build-troubleshooting.md)
 - [AI 路由测试与 Brotli 响应截断排查](docs/ai-routing-troubleshooting.md)
 
+- [图片计划与内部并行收集](docs/langgraph-image-planning.md)
+
 ## 技术栈
 
 ### 后端
