@@ -2,6 +2,7 @@ package com.hui.huiaicodemother.langgraph4j;
 
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.exception.ErrorCode;
 import com.hui.huiaicodemother.langgraph4j.node.*;
@@ -12,9 +13,15 @@ import org.bsc.langgraph4j.*;
 import org.bsc.langgraph4j.prebuilt.MessagesState;
 import org.bsc.langgraph4j.prebuilt.MessagesStateGraph;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Primary;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.Disposable;
+import reactor.core.Disposables;
+import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executors;
@@ -136,5 +143,81 @@ public class CodeGenWorkflow {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "工作流未产出可用结果");
         }
         return result;
+    }
+
+    /** Typed events prevent Spring MVC from wrapping already-framed SSE text a second time. */
+    public Flux<ServerSentEvent<Map<String, Object>>> executeWorkflowEvents(String prompt) {
+        initialContext(prompt, 1L);
+        return Flux.defer(() -> executeWorkflowEvents(prompt, IdUtil.getSnowflakeNextId()));
+    }
+
+    public Flux<ServerSentEvent<Map<String, Object>>> executeWorkflowEvents(String prompt, Long appId) {
+        initialContext(prompt, appId);
+        return Flux.create(sink -> {
+            Thread worker = Thread.ofVirtual().name("langgraph-" + appId).unstarted(() -> {
+                try {
+                    if (sink.isCancelled()) return;
+                    sink.next(event("workflow_start", Map.of("message", "开始执行代码生成工作流", "appId", appId)));
+                    if (sink.isCancelled()) return;
+                    WorkflowContext result = execute(initialContext(prompt, appId), (type, data) -> {
+                        if (sink.isCancelled()) throw new CancellationException("工作流已取消");
+                        sink.next(event(type, data));
+                    });
+                    if (!sink.isCancelled()) {
+                        sink.next(event("workflow_completed", Map.of("message", "代码生成工作流执行完成", "appId", appId,
+                                "generationType", result.getGenerationType().getValue(),
+                                "buildResultDir", result.getBuildResultDir())));
+                        sink.complete();
+                    }
+                } catch (Exception e) {
+                    if (sink.isCancelled()) return;
+                    log.error("工作流执行失败", e);
+                    sink.next(event("workflow_error", Map.of("message", "工作流执行失败", "error", "生成或质检失败，请检查服务端日志")));
+                    sink.complete();
+                }
+            });
+            sink.onCancel(worker::interrupt);
+            worker.start();
+        });
+    }
+
+    public Flux<String> executeWorkflowWithFlux(String prompt) {
+        return executeWorkflowEvents(prompt).map(this::formatEvent);
+    }
+
+    public Flux<String> executeWorkflowWithFlux(String prompt, Long appId) {
+        return executeWorkflowEvents(prompt, appId).map(this::formatEvent);
+    }
+
+    private String formatEvent(ServerSentEvent<Map<String, Object>> event) {
+        return "event: " + event.event() + "\ndata: " + JSONUtil.toJsonStr(event.data()) + "\n\n";
+    }
+
+    public SseEmitter executeWorkflowWithSse(String prompt) {
+        return executeWorkflowWithSse(prompt, IdUtil.getSnowflakeNextId());
+    }
+
+    public SseEmitter executeWorkflowWithSse(String prompt, Long appId) {
+        Flux<ServerSentEvent<Map<String, Object>>> events = executeWorkflowEvents(prompt, appId);
+        SseEmitter emitter = new SseEmitter(Duration.ofMinutes(30).toMillis());
+        Disposable.Swap subscription = Disposables.swap();
+        Runnable cancel = subscription::dispose;
+        emitter.onCompletion(cancel);
+        emitter.onTimeout(() -> { cancel.run(); emitter.complete(); });
+        emitter.onError(error -> cancel.run());
+        Disposable running = events.subscribe(event -> {
+            try {
+                emitter.send(SseEmitter.event().name(event.event()).data(event.data()));
+            } catch (Exception e) {
+                cancel.run();
+                emitter.completeWithError(e);
+            }
+        }, emitter::completeWithError, emitter::complete);
+        subscription.update(running);
+        return emitter;
+    }
+
+    private static ServerSentEvent<Map<String, Object>> event(String name, Map<String, Object> data) {
+        return ServerSentEvent.<Map<String, Object>>builder(data).event(name).build();
     }
 }

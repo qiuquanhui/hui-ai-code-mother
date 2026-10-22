@@ -29,6 +29,8 @@
 
 - [图片收集子图](docs/langgraph-image-subgraphs.md)
 
+- [工作流 HTTP 与流式事件](docs/langgraph-workflow-streaming.md)
+
 ## 技术栈
 
 ### 后端

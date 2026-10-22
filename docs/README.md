@@ -27,3 +27,4 @@
 - [代码质检与有限修复](langgraph-code-quality.md)
 - [显式并发图片分支](langgraph-concurrent-images.md)
 - [图片收集子图](langgraph-image-subgraphs.md)
+- [工作流 HTTP 与流式事件](langgraph-workflow-streaming.md)
