@@ -68,3 +68,10 @@ langchain4j:
       max-tokens: 8192
       log-requests: true
       log-responses: true
+
+# Optional image providers used by the LangGraph workflow.
+pexels:
+  api-key: ${PEXELS_API_KEY:}
+dashscope:
+  api-key: ${DASHSCOPE_API_KEY:}
+  image-model: ${DASHSCOPE_IMAGE_MODEL:wan2.2-t2i-flash}

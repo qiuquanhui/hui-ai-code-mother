@@ -1,6 +1,6 @@
 # 方案设计
 
-更新日期：2026-10-20。本文按“是什么 → 为什么采用 → 实现思路 → 实现步骤”说明技术方案，重点展开 AI 路由与生成、工具调用、流式响应、对话记忆、登录态、Vue 构建发布、源码下载和部署封面。
+更新日期：2026-10-22。本文按“是什么 → 为什么采用 → 实现思路 → 实现步骤”说明技术方案，重点展开 AI 路由与生成、独立 LangGraph 工作流、工具调用、流式响应、对话记忆、登录态、Vue 构建发布、源码下载和部署封面。
 
 文中的“当前实现”均有仓库源码对应；“选型理由”是结合当前需求与代码给出的工程解释；“改进步骤”是后续建议，不能作为已经落地的功能。示例代码是核心逻辑摘录，完整实现以源码链接为准。
 
@@ -30,6 +30,7 @@
 | 前端 | Vue 3、TypeScript、Vite 7、Ant Design Vue、Pinia、Vue Router | 用户界面、应用/对话管理、Markdown 展示、iframe 预览 |
 | HTTP 接口 | Spring Boot 3.5.4、Java 21、Spring MVC、Reactor Flux | REST API、SSE 响应、权限与异常处理 |
 | AI 编排 | LangChain4j 1.1.0 / 1.1.0-beta7、OpenAI 兼容接口 | 提示词、模型调用、记忆窗口、工具执行 |
+| 独立工作流 | LangGraph4j 1.6.0-rc2、DashScope SDK 2.21.1 | 五节点生成链与图片工具；尚未接入聊天 SSE |
 | 持久化 | MySQL、MyBatis-Flex 1.11.1、HikariCP | 用户、应用、业务对话历史 |
 | 会话与记忆 | Spring Session Redis、RedisChatMemoryStore | 登录态共享、模型上下文存储 |
 | 进程内缓存 | Caffeine | 应用级 AI Service 实例缓存 |
@@ -106,6 +107,14 @@ MySQL 对话历史用于界面回放和业务持久化；Redis 保存模型当�
 实现依据：[AI 工厂](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGeneratorServiceFactory.java)、[历史服务](../src/main/java/com/hui/huiaicodemother/service/impl/ChatHistoryServiceImpl.java)、[生成门面](../src/main/java/com/hui/huiaicodemother/core/AiCodeGeneratorFacade.java)。
 
 Vue 模型 Bean 名为 `reasoningStreamingChatModel`，但当前实际硬编码使用 `deepseek-chat`、8192 tokens；注释中的 `deepseek-reasoner` 是备选方案，未启用。其地址和密钥读取 `langchain4j.open-ai.chat-model` 配置。
+
+### 4.1 独立 LangGraph 工作流
+
+`CodeGenWorkflow` 作为 Spring Service 提供 `executeWorkflow(prompt, appId)`，依次执行 `ImageCollectorNode → PromptEnhancerNode → RouterNode → CodeGeneratorNode → ProjectBuilderNode`。图片收集结果用于增强提示词；类型路由失败回退 HTML；代码生成复用现有门面；Vue 构建成功并检查 `dist/index.html` 后才返回构建目录。
+
+显式 `appId` 用于隔离输出目录和模型记忆。无 ID 的独立调用分配唯一 ID，但不会创建数据库应用记录。图片服务失败可降级，生成或构建失败向调用方传播。该入口没有接入现有聊天 SSE，也不自动完成应用入库、业务历史持久化或部署。
+
+Pexels 搜图需要 `PEXELS_API_KEY`，DashScope Logo 生成需要 `DASHSCOPE_API_KEY`；模型可用 `DASHSCOPE_IMAGE_MODEL` 覆盖，默认 `wan2.2-t2i-flash`。Mermaid 架构图还需要 PATH 中可执行的 CLI 和可用 COS 上传配置。缺少图片 Key 返回空列表；图编排测试使用 Mock／本地 HTTP，不代表供应商线上接口可用。完整配置、源码与验证范围见 [LangGraph 同步与验证](langgraph-sync-verification.md)。
 
 ## 5. 两类产物保存方式
 
@@ -213,6 +222,7 @@ Vue 工程生成结束后，后端虚拟线程自动执行 `npm install`（300 �
 8. 生成目录相对于后端启动时的工作目录，部署环境需配置持久化存储和静态服务。后端进程的 PATH 需包含 Node.js/npm；更新构建器后需重启后端。
 9. 在 `application-local.yml` 配置 `cos.client.host`、`secretId`、`secretKey`、`region`、`bucket`；`host` 包含 `https://`。COS 客户端当前启动即创建，本机测试也需要有效的配置字段，创建 Bean 不等于已经验证上传成功。
 10. 部署截图需要本机 Chrome、匹配的 ChromeDriver，以及从后端到部署站点和 COS 的网络访问。WebDriverManager 会管理驱动获取；封面任务运行于部署返回后的虚拟线程中。
+11. 使用独立 LangGraph 图片工作流前，配置 `PEXELS_API_KEY` 和 `DASHSCOPE_API_KEY`；它们对应用启动可选，但对对应真实图片功能必需。架构图还需要 Mermaid CLI 和 COS。配置示例、无 Key 时的行为与未联调项目见 [LangGraph 配置说明](langgraph-sync-verification.md)。
 
 普通 `chat-model` 指定 `custom-headers.Accept-Encoding: gzip`，规避当前间接依赖 `org.brotli:dec:0.1.2` 的同步响应截断。不要把 HTTP 200 视为响应正文完整的证明；根因、对照实验与测试命令见 [AI 路由故障排查](ai-routing-troubleshooting.md)。
 

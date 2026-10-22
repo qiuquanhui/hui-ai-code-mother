@@ -50,6 +50,7 @@ public class VisualEditingE2eServer {
         if (!Boolean.getBoolean("visual.e2e")) throw new IllegalStateException("Requires -Dvisual.e2e=true");
         seed();
         SpringApplication app = new SpringApplication(FixtureConfiguration.class);
+        app.setAdditionalProfiles("visual-e2e");
         app.run("--spring.config.name=visual-e2e", "--spring.main.allow-bean-definition-overriding=true", "--server.address=127.0.0.1", "--server.port=" + Integer.getInteger("visual.e2e.port", 8123), "--server.servlet.context-path=/api");
     }
 
@@ -101,6 +102,7 @@ public class VisualEditingE2eServer {
     }
 
     @Configuration(proxyBeanMethods = false)
+    @Profile("visual-e2e")
     @Import({ServletWebServerFactoryAutoConfiguration.class, DispatcherServletAutoConfiguration.class,
             WebMvcAutoConfiguration.class, JacksonAutoConfiguration.class, HttpMessageConvertersAutoConfiguration.class,
             JsonConfig.class, AppController.class, StaticResourceController.class, GlobalExceptionHandler.class,
@@ -140,6 +142,7 @@ public class VisualEditingE2eServer {
     }
 
     @RestController
+    @Profile("visual-e2e")
     static class FixtureEndpoints {
         @GetMapping("/user/get/login") BaseResponse<LoginUserVO> login(HttpServletRequest request) {
             return ResultUtils.success(BeanUtil.copyProperties(user(request), LoginUserVO.class));

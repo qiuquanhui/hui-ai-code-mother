@@ -1,6 +1,6 @@
 # 项目总结
 
-更新日期：2026-10-20。本总结基于源码、Git 历史和实际检查，不将未执行用例视为验收通过。历史检查保留日期，AI 路由和当前提交前检查单独记录。
+更新日期：2026-10-22。本总结基于源码、Git 历史和实际检查，不将未执行用例视为验收通过。历史检查保留日期，各轮验证的范围单独记录。
 
 ## 1. 阶段成果
 
@@ -11,6 +11,7 @@
 | 用户与权限 | 注册登录、用户管理、Redis Session、管理员注解校验 | [UserServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/UserServiceImpl.java) |
 | 应用管理 | 创建、个人列表、精选列表、编辑、删除与管理员维护 | [AppController](../src/main/java/com/hui/huiaicodemother/controller/AppController.java) |
 | AI 生成 | HTML、多文件、Vue 工程三种后端生成方式 | [AiCodeGeneratorFacade](../src/main/java/com/hui/huiaicodemother/core/AiCodeGeneratorFacade.java) |
+| 独立工作流 | LangGraph4j 五节点编排及图片工具；尚未接入聊天 SSE，真实云服务未联调 | [工作流入口](../src/main/java/com/hui/huiaicodemother/langgraph4j/CodeGenWorkflow.java) |
 | 需求路由 | 创建应用时用普通模型选择生成类型，对话页和详情展示类型 | [路由服务](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGenTypeRoutingService.java) |
 | 上下文管理 | 应用级 AI Service、Redis 记忆、MySQL 历史恢复、Caffeine 缓存 | [AI 工厂](../src/main/java/com/hui/huiaicodemother/ai/AiCodeGeneratorServiceFactory.java) |
 | 工具过程展示 | 定制流式工具回调，内部消息转成可读文本和代码块 | [JsonMessageStreamHandler](../src/main/java/com/hui/huiaicodemother/core/handler/JsonMessageStreamHandler.java) |
@@ -39,6 +40,8 @@
 
 2026-10-19 新增需求智能路由、创建逻辑下沉到服务层、源码 ZIP 下载、部署后截图上传 COS 和封面展示兼容。排查真实路由测试时，确认 WebDriverManager 间接引入的 Brotli 0.1.2 与 Spring 响应读取组合会截断正文；普通聊天模型指定 gzip 后原测试通过。完整证据见 [AI 路由故障排查](ai-routing-troubleshooting.md)。
 
+2026-10-21 参照 yu 项目同步 LangGraph4j `1.6.0-rc2`、DashScope SDK `2.21.1` 和独立五节点工作流，修复重复图片调用、固定应用 ID、构建失败误报成功、提示词工具名和日志绑定冲突。2026-10-22 补齐交付配置说明：真实 Pexels 搜图需要 `PEXELS_API_KEY`，Logo 生成需要 `DASHSCOPE_API_KEY`，架构图需要 Mermaid CLI 和 COS；缺少 Key 返回空列表只代表功能降级。配置和验证边界见 [LangGraph 同步与验证](langgraph-sync-verification.md)。
+
 ## 3. 关键设计决策与复盘
 
 **应用是上下文和产物的组织单位。** AI 服务缓存键使用应用 ID 和生成类型；模型记忆和生成目录按应用隔离，便于持续修改。仍需补齐应用级并发控制以及删除后的缓存/记忆清理。
@@ -54,6 +57,16 @@
 **新增依赖可能改变已有客户端行为。** 截图依赖引入 Apache HTTP 和 Brotli 解码后，原有同步模型调用出现 HTTP 200 但正文只剩 `{` 的故障。通过相同输入下对比客户端、压缩设置和读取方式，再检查实际依赖实现，定位到解压与预读的组合问题；使用 gzip 规避后回到原测试确认结果。依赖升级应覆盖这条跨模块回归。
 
 ## 4. 验证记录
+
+### 2026-10-21：LangGraph 工作流同步
+
+| 检查 | 结果 | 说明 |
+| --- | --- | --- |
+| Maven `verify`、Spring Boot 启动和 JAR 打包 | 48 项通过，0 失败/错误/跳过，`BUILD SUCCESS` | Java 21 + Maven 3.9.11；包含原有编辑、SSE、构建和解析器回归 |
+| 四个 LangGraph 测试类 | 24 项通过，包含在上述 48 项中 | 图片收集 2、生成图片工具 4、图片请求工具 6、工作流 12 |
+| 真实模型、Pexels、unDraw、DashScope、COS、Mermaid CLI 联调 | 本轮未执行 | 模型/云服务使用 Mock 或本地 HTTP，Vue 构建调度也使用替代实现；不能据此声称真实图片服务已可用 |
+
+2026-10-22 补齐启动前配置和验证边界，将本机直接填写的 DashScope Key 保留到 Git 忽略配置，并在提交前重新执行同一套 Maven `verify`：48 项通过，失败/错误/跳过均为 0，Spring Boot 启动和 JAR 打包通过。文档 125 个本地链接检查通过；复验日志位于 `tmp/langgraph-commit-verify.log`。复现命令和功能配置见 [LangGraph 同步与验证](langgraph-sync-verification.md)。
 
 ### 2026-10-20：可视化修改与真实环境故障修复
 

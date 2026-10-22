@@ -1,6 +1,6 @@
 # 需求文档
 
-更新日期：2026-10-20。项目：AI 零代码应用生成平台（hui-ai-code-mother）。
+更新日期：2026-10-22。项目：AI 零代码应用生成平台（hui-ai-code-mother）。
 
 ## 1. 背景与目标
 
@@ -36,6 +36,7 @@
 | FR-12 | 页面元素可视化编辑 | 预览中悬浮、选中元素，将页面路径、标签、选择器及文本提交给 AI；Vue 使用文件工具增量修改 | 已实现；三种模式隔离无头回归及真实模型博客副本编辑通过 |
 | FR-13 | 下载应用源码 | 创建者从对话页下载 `{appId}.zip`；打包生成目录，过滤依赖、构建产物、日志及部分配置文件 | 已实现；下载权限和压缩包内容尚待端到端验收 |
 | FR-14 | 部署封面 | 部署返回后，虚拟线程用 Chrome 截图、压缩 JPEG、上传 COS 并更新 `cover`；前端补全封面 URL 协议，卡片加载失败显示占位图 | 已实现；无截图状态、失败重试或浏览器并发隔离，完整链路尚待验收 |
+| FR-15 | 带素材的独立生成工作流 | 后端依次执行图片收集、提示词增强、类型路由、代码生成和构建；支持 Pexels、unDraw、DashScope Logo 与 Mermaid 架构图 | 已实现独立 Service，尚未接入聊天 SSE；实际 Pexels/Logo 功能需相应 Key，架构图需 Mermaid CLI 和 COS；真实云服务未联调 |
 
 主要实现依据：[AppController](../src/main/java/com/hui/huiaicodemother/controller/AppController.java)、[AppServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/AppServiceImpl.java)、[UserServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/UserServiceImpl.java)、[对话页面](../hui-ai-code-mother-frontend/src/pages/app/AppChatPage.vue)。
 
@@ -92,6 +93,8 @@
 | AC-15 | 预览中选中元素并连续修改文本与样式 | 元素上下文完整传递，修改写盘并在构建后刷新；保留无关内容（隔离回归与真实模型博客副本验证通过） |
 
 ## 7. 后续范围与优先级
+
+LangGraph 的验收边界：2026-10-21 已通过 48 项定向自动化测试与打包，其中四个工作流相关测试类共 24 项；外部服务使用 Mock／本地 HTTP，未完成真实图片搜索、Logo 生成、架构图转换上传或工作流接入聊天 SSE 的验收。配置要求及具体测试范围见 [LangGraph 同步与验证](langgraph-sync-verification.md)。
 
 - P0：收敛文件读写范围，明确预览访问策略；将已接入的 Vue 本机构建迁入隔离环境，完善版本化产物发布。
 - P1：生成任务状态、应用级并发控制、断连取消和错误处理；稳定历史游标及上下文恢复；删除资源清理。

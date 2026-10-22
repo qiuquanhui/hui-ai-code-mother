@@ -14,6 +14,7 @@
 
 - [文档索引](docs/README.md)
 - [可视化修改实现与无头验证](docs/visual-editing-verification.md)
+- [LangGraph 工作流、图片配置与验证范围](docs/langgraph-sync-verification.md)
 - [需求文档](docs/requirements.md)
 - [方案设计](docs/solution-design.md)
 - [项目总结](docs/project-summary.md)
@@ -28,6 +29,7 @@
 - Spring Boot：Web / AOP
 - 数据访问：MyBatis-Flex + HikariCP + MySQL
 - AI 编排：LangChain4j + OpenAI 兼容模型接口 + 工具调用
+- 独立生成工作流：LangGraph4j 1.6.0-rc2；图片工具使用 Pexels、unDraw、DashScope SDK 2.21.1 和 Mermaid CLI
 - 会话与上下文：Spring Session Redis + Redis Chat Memory + Caffeine
 - 工具库：Hutool
 - 网页截图：Selenium + WebDriverManager + Chrome
@@ -51,6 +53,29 @@
 6. 如需访问部署站点，另行配置静态服务托管 `tmp/code_deploy`，并使前后端部署域名一致；详细配置与当前验证限制见 [方案设计](docs/solution-design.md) 和 [项目总结](docs/project-summary.md)
 7. 在 `application-local.yml` 配置 `cos.client` 的 `host`、`secretId`、`secretKey`、`region`、`bucket`，其中 `host` 使用带 `https://` 的完整域名；当前 COS Bean 在启动时创建，密钥仅保存在本机配置。部署封面生成还需要安装 Chrome，并允许 WebDriverManager 获取匹配驱动；后端必须能访问返回的部署地址
 
+### LangGraph 图片功能配置
+
+使用真实图片功能前，需准备以下配置；缺少 Key 不影响启动，但对应图片功能会返回空列表。
+
+| 功能 | 必需配置 | 未配置或失败时的行为 |
+| --- | --- | --- |
+| Pexels 内容图片搜索 | `PEXELS_API_KEY` | 缺少 Key 时不发起请求，返回空列表 |
+| DashScope Logo 生成 | `DASHSCOPE_API_KEY` | 缺少 Key 时不发起请求，返回空列表 |
+| Mermaid 架构图生成并上传 | PATH 可执行 `mmdc` / Windows `mmdc.cmd`，以及 `cos.client` 配置 | 转换或上传失败时返回空列表 |
+| 图片收集 AI、类型路由和代码生成 | 原有 LangChain4j 模型地址、密钥和 MySQL/Redis 配置 | 图片收集失败可降级；代码生成失败会终止工作流 |
+
+在 IDEA 的后端 **Run/Debug Configurations → Environment variables** 中添加 `PEXELS_API_KEY=你的Key` 和 `DASHSCOPE_API_KEY=你的Key`，保存并重启后端。命令行启动则在同一 PowerShell 会话设置：
+
+```powershell
+$env:PEXELS_API_KEY = '你的PexelsKey'
+$env:DASHSCOPE_API_KEY = '你的DashScopeKey'
+.\mvnw.cmd spring-boot:run
+```
+
+Logo 默认模型为 `wan2.2-t2i-flash`，可通过 `DASHSCOPE_IMAGE_MODEL` 覆盖。也可以将 `pexels.api-key`、`dashscope.api-key`、`dashscope.image-model` 写入被 Git 忽略的 `application-local.yml`；密钥不得提交。
+
+工作流目前通过后端 `CodeGenWorkflow.executeWorkflow(prompt, appId)` 独立调用，尚未接入现有聊天 SSE 接口。2026-10-22 提交前重新执行 Maven `verify`，48 项定向测试及打包通过；模型、图片云服务、COS 上传使用 Mock／本地 HTTP，**真实云服务尚未联调，不能据此认为配置密钥后已验收通过**。四个 LangGraph 测试类的用例数量和完整边界见 [同步与验证记录](docs/langgraph-sync-verification.md)。
+
 可视化编辑已通过 21 项后端回归、三种模式无头测试及真实模型博客副本验证。模型连接失败时会显示明确错误；排障和复现步骤见 [可视化修改记录](docs/visual-editing-verification.md)。
 
 普通聊天模型已配置 `custom-headers.Accept-Encoding: gzip`，避免当前 Brotli 解压依赖导致同步响应被截断。出现 HTTP 200 但 `JsonEOFException` 的情况时，参见 [排查记录](docs/ai-routing-troubleshooting.md)。
@@ -72,6 +97,7 @@ hui-ai-code-mother
 │   ├── core                   # 生成门面、解析器、保存器、流处理器与 Vue 构建器
 │   ├── exception              # 异常处理（全局异常、错误码）
 │   ├── generator              # MyBatis-Flex 代码生成器
+│   ├── langgraph4j            # 独立五节点生成工作流、状态、图片 AI 服务与工具
 │   ├── mapper                 # 数据访问层
 │   ├── model                  # DTO / 实体 / VO / 枚举
 │   └── service                # 业务逻辑层
