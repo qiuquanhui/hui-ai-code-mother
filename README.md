@@ -8,11 +8,14 @@
 
 用户输入需求描述并创建应用，AI 路由器根据需求选择 HTML、多文件网页或 Vue 工程模式，再通过流式对话生成和修改代码。对话历史保存在 MySQL，模型上下文通过应用级 Redis 记忆管理。
 
-当前提供静态文件预览、源码 ZIP 下载和目录复制部署。Vue 工程在流式对话结束前完成构建，部署时构建并发布 `dist`；同一后端进程内，同目录的重叠构建请求会等待并复用结果。部署后异步截取站点图片、上传腾讯云 COS 并更新封面。支持在预览中选中元素并通过对话修改：HTML/多文件全量保存，Vue 使用目录、读取、局部替换、写入和删除工具增量修改。构建隔离、版本化发布和路由失败兜底仍待完善，具体边界见项目文档。
+当前提供静态文件预览、源码 ZIP 下载和目录复制部署。Vue 工程在流式对话结束前完成构建，部署时构建并发布 `dist`；同一后端进程内，同目录的重叠构建请求会等待并复用结果。部署后异步截取站点图片、上传腾讯云 COS 并更新封面。支持在预览中选中元素并通过对话修改：HTML/多文件全量保存，Vue 使用目录、读取、局部替换、写入和删除工具增量修改。
+
+系统层面已引入多例模型支撑 AI 并发调用、Redisson 用户级接口限流、AI 输入/输出内容审查和精选列表 Redis 缓存，并完成 Brotli 响应截断的根因修复，详见[系统优化文档](docs/system-optimization.md)。构建隔离、版本化发布和路由失败兜底仍待完善，具体边界见项目文档。
 
 ## 项目文档
 
 - [文档索引](docs/README.md)
+- [系统优化：限流、内容安全、缓存与 AI 并发](docs/system-optimization.md)
 - [可视化修改实现与无头验证](docs/visual-editing-verification.md)
 - [LangGraph 工作流、图片配置与验证范围](docs/langgraph-sync-verification.md)
 - [LangGraph 质检、并发、子图与流式接口](docs/langgraph-incremental-workflows.md)
@@ -38,6 +41,7 @@
 - AI 编排：LangChain4j + OpenAI 兼容模型接口 + 工具调用
 - 独立生成工作流：LangGraph4j / Studio 1.6.0-rc2，支持质检修复、并发图片收集和子图；图片工具使用 Pexels、unDraw、DashScope SDK 2.21.1 和 Mermaid CLI
 - 会话与上下文：Spring Session Redis + Redis Chat Memory + Caffeine
+- 分布式限流：Redisson RRateLimiter + Spring AOP 注解；页面缓存：Spring Cache + Redis
 - 工具库：Hutool
 - 网页截图：Selenium + WebDriverManager + Chrome
 - 封面存储：腾讯云 COS
@@ -87,7 +91,7 @@ Logo 默认模型为 `wan2.2-t2i-flash`，可通过 `DASHSCOPE_IMAGE_MODEL` 覆�
 
 可视化编辑已通过 21 项后端回归、三种模式无头测试及真实模型博客副本验证。模型连接失败时会显示明确错误；排障和复现步骤见 [可视化修改记录](docs/visual-editing-verification.md)。
 
-普通聊天模型已配置 `custom-headers.Accept-Encoding: gzip`，避免当前 Brotli 解压依赖导致同步响应被截断。出现 HTTP 200 但 `JsonEOFException` 的情况时，参见 [排查记录](docs/ai-routing-troubleshooting.md)。
+全部四类模型均配置 `custom-headers.Accept-Encoding: gzip`，且 `pom.xml` 已排除 `org.brotli:dec` 间接依赖，避免同步响应被截断（HTTP 200 但 `JsonEOFException`）。根因分析与复现命令参见 [排查记录](docs/ai-routing-troubleshooting.md)，本轮系统优化见 [系统优化文档](docs/system-optimization.md)。
 
 ## 项目结构
 
@@ -98,7 +102,8 @@ hui-ai-code-mother
 ├── src/main/java/com/hui/huiaicodemother
 │   ├── annotation             # 自定义注解（权限校验 @AuthCheck）
 │   ├── aop                    # 切面（权限拦截器）
-│   ├── ai                     # AI 服务工厂、消息模型与工具
+│   ├── ai                     # AI 服务工厂、消息模型、工具与内容审查护轨（guardrail）
+│   ├── ratelimiter            # 注解式分布式限流（注解、切面、Redisson 配置）
 │   ├── common                 # 通用响应封装
 │   ├── config                 # 全局配置（CORS、JSON 等）
 │   ├── constant               # 常量定义

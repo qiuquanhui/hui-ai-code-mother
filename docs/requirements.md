@@ -37,6 +37,10 @@
 | FR-13 | 下载应用源码 | 创建者从对话页下载 `{appId}.zip`；打包生成目录，过滤依赖、构建产物、日志及部分配置文件 | 已实现；下载权限和压缩包内容尚待端到端验收 |
 | FR-14 | 部署封面 | 部署返回后，虚拟线程用 Chrome 截图、压缩 JPEG、上传 COS 并更新 `cover`；前端补全封面 URL 协议，卡片加载失败显示占位图 | 已实现；无截图状态、失败重试或浏览器并发隔离，完整链路尚待验收 |
 | FR-15 | 带素材的独立生成工作流 | 图片计划/收集、提示词增强、路由、生成、质检与 Vue 构建；支持有限修复重试、并发分支与子图，以及管理员专用同步/Flux/SSE 入口 | 已实现；现有聊天接口尚未切换；Pexels/Logo 需 Key，架构图需 CLI/COS，真实外部服务未完成本轮联调；Studio 默认关闭 |
+| FR-16 | AI 内容安全审查 | 输入护轨拦截超长、空输入、敏感词与提示注入正则；输出护轨对空/过短/含敏感信息响应触发重新生成，两个生成分支均已接入 | 已实现基础规则；敏感词与注入规则为代码内硬编码 |
+| FR-17 | 接口限流 | `@RateLimit` 注解 + Redisson `RRateLimiter`，支持用户/IP/接口维度；SSE 生成接口用户级 5 次/60 秒，超限以 `business-error` 事件返回并由前端提示 | 已实现；当前仅覆盖 SSE 生成接口，未做超限自动化验证 |
+| FR-18 | 精选列表缓存 | Spring Cache + Redis 缓存精选应用分页（前 10 页，TTL 5 分钟），键由 `CacheKeyUtils` 统一生成 | 已实现；精选优先级变更后最多延迟 5 分钟生效，无主动失效 |
+| FR-19 | AI 调用并发 | 路由、流式、推理三类模型改为 prototype 多例，每次创建 AI 服务时获取新实例 | 已实现，浏览器全链路验证通过；无应用级并发上限控制 |
 
 主要实现依据：[AppController](../src/main/java/com/hui/huiaicodemother/controller/AppController.java)、[AppServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/AppServiceImpl.java)、[UserServiceImpl](../src/main/java/com/hui/huiaicodemother/service/impl/UserServiceImpl.java)、[对话页面](../hui-ai-code-mother-frontend/src/pages/app/AppChatPage.vue)。
 
@@ -91,6 +95,7 @@
 | AC-13 | 创建者下载源码，其他用户尝试下载 | 创建者收到有效 ZIP；过滤规则生效；其他用户被后端拒绝（待验收） |
 | AC-14 | 部署后生成封面，图片地址缺协议或加载失败 | 后台截图上传并更新封面；页面补全协议，卡片失败时回退占位图（待端到端验收） |
 | AC-15 | 预览中选中元素并连续修改文本与样式 | 元素上下文完整传递，修改写盘并在构建后刷新；保留无关内容（隔离回归与真实模型博客副本验证通过） |
+| AC-16 | 登录后创建应用并流式生成；1 分钟内连续发起超过 5 次生成 | 创建、路由（多例模型）与流式生成全链路成功且响应体完整（2026-10-23 浏览器验证通过）；超限请求被限流并返回可读错误（限流分支待自动化验证） |
 
 ## 7. 后续范围与优先级
 
