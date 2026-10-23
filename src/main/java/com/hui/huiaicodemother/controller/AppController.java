@@ -16,6 +16,8 @@ import com.hui.huiaicodemother.model.dto.app.*;
 import com.hui.huiaicodemother.model.vo.AppVO;
 import com.hui.huiaicodemother.model.entity.User;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
+import com.hui.huiaicodemother.ratelimiter.annotation.RateLimit;
+import com.hui.huiaicodemother.ratelimiter.enums.RateLimitType;
 import com.hui.huiaicodemother.service.ProjectDownloadService;
 import com.hui.huiaicodemother.service.UserService;
 import com.mybatisflex.core.paginate.Page;
@@ -336,6 +338,7 @@ public class AppController {
     }
 
     @GetMapping(value = "/chat/gen/code", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     public Flux<ServerSentEvent<String>> chatToGenCode(@RequestParam Long appId,
                                                        @RequestParam String message,
                                                        HttpServletRequest request) {
