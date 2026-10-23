@@ -1,6 +1,7 @@
 package com.hui.huiaicodemother.langgraph4j.node;
 
 import com.hui.huiaicodemother.ai.AiCodeGenTypeRoutingService;
+import com.hui.huiaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.hui.huiaicodemother.langgraph4j.state.WorkflowContext;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
 import com.hui.huiaicodemother.utils.SpringContextUtil;
@@ -16,6 +17,7 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 @Slf4j
 public class RouterNode {
 
+
     public static AsyncNodeAction<MessagesState<String>> create() {
         return node_async(state -> {
             WorkflowContext context = WorkflowContext.getContext(state);
@@ -23,8 +25,9 @@ public class RouterNode {
 
             CodeGenTypeEnum generationType;
             try {
-                // 获取AI路由服务
-                AiCodeGenTypeRoutingService routingService = SpringContextUtil.getBean(AiCodeGenTypeRoutingService.class);
+                // 获取AI路由服务工厂并创建新的路由服务实例
+                AiCodeGenTypeRoutingServiceFactory factory = SpringContextUtil.getBean(AiCodeGenTypeRoutingServiceFactory.class);
+                AiCodeGenTypeRoutingService routingService = factory.createAiCodeGenTypeRoutingService();
                 // 根据原始提示词进行智能路由
                 generationType = routingService.routeCodeGenType(context.getOriginalPrompt());
                 if (generationType == null) generationType = CodeGenTypeEnum.HTML;

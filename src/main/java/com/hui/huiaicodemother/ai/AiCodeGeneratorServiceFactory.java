@@ -3,6 +3,8 @@ package com.hui.huiaicodemother.ai;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.hui.huiaicodemother.ai.tools.ToolManager;
+import com.hui.huiaicodemother.config.ReasoningStreamingChatModelConfig;
+import com.hui.huiaicodemother.config.StreamingChatModelConfig;
 import com.hui.huiaicodemother.exception.BusinessException;
 import com.hui.huiaicodemother.exception.ErrorCode;
 import com.hui.huiaicodemother.model.enums.CodeGenTypeEnum;
@@ -27,7 +29,7 @@ import java.time.Duration;
 @Slf4j
 public class AiCodeGeneratorServiceFactory {
 
-    @Resource
+    @Resource(name = "openAiChatModel")
     private ChatModel chatModel;
 
     @Resource
@@ -39,17 +41,12 @@ public class AiCodeGeneratorServiceFactory {
     @Resource
     private ToolManager toolManager;
 
-    /**
-     * 普通工程的流式对话模型
-     */
     @Resource
-    private StreamingChatModel openAiStreamingChatModel;
+    private StreamingChatModelConfig streamingChatModelConfig;
 
-    /**
-     * Vue 工程的流式对话模型
-     */
     @Resource
-    private StreamingChatModel reasoningStreamingChatModel;
+    private ReasoningStreamingChatModelConfig reasoningStreamingChatModelConfig;
+
 
     /**
      * AI 服务实例缓存
@@ -101,7 +98,10 @@ public class AiCodeGeneratorServiceFactory {
         log.info("为 appId: {} 创建新的 AI 服务实例，代码生成类型: {}", appId, codeGenType);
         return switch (codeGenType) {
             // Vue 项目生成使用推理模型
-            case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
+            case VUE_PROJECT -> {
+                // 使用多例模式的 StreamingChatModel 解决并发问题
+                StreamingChatModel reasoningStreamingChatModel = reasoningStreamingChatModelConfig.reasoningStreamingChatModelPrototype();
+                yield AiServices.builder(AiCodeGeneratorService.class)
                     .streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
                     .tools((Object[]) toolManager.getAllTools())
@@ -109,12 +109,18 @@ public class AiCodeGeneratorServiceFactory {
                             toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
                     ))
                     .build();
+            }
             // HTML 和多文件生成使用默认模型
-            case HTML, MULTI_FILE -> AiServices.builder(AiCodeGeneratorService.class)
-                    .chatModel(chatModel)
-                    .streamingChatModel(openAiStreamingChatModel)
-                    .chatMemory(chatMemory)
-                    .build();
+            case HTML, MULTI_FILE -> {
+                // 使用多例模式的 StreamingChatModel 解决并发问题
+                StreamingChatModel openAiStreamingChatModel = streamingChatModelConfig.streamingChatModelPrototype();
+
+                yield AiServices.builder(AiCodeGeneratorService.class)
+                        .chatModel(chatModel)
+                        .streamingChatModel(openAiStreamingChatModel)
+                        .chatMemory(chatMemory)
+                        .build();
+            }
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR,
                     "不支持的代码生成类型: " + codeGenType.getValue());
         };
