@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 
+import java.util.Map;
+
 @Configuration
 @ConfigurationProperties(prefix = "langchain4j.open-ai.streaming-chat-model")
 @Data
@@ -27,6 +29,11 @@ public class StreamingChatModelConfig {
 
     private boolean logResponses;
 
+    /**
+     * 自定义请求头：强制 gzip 压缩协商，规避 brotli 响应体截断问题
+     */
+    private Map<String, String> customHeaders;
+
     @Bean
     @Scope("prototype")
     public StreamingChatModel streamingChatModelPrototype() {
@@ -38,6 +45,7 @@ public class StreamingChatModelConfig {
                 .temperature(temperature)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
+                .customHeaders(customHeaders)
                 .build();
     }
 }

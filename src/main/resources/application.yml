@@ -69,6 +69,9 @@ langchain4j:
       api-key: <Your API Key>
       model-name: deepseek-chat
       max-tokens: 8192
+      # 强制 gzip 压缩协商，规避 brotli 解压截断响应体的问题
+      custom-headers:
+        Accept-Encoding: gzip
       log-requests: true
       log-responses: true
       max-retries: 3
@@ -79,6 +82,9 @@ langchain4j:
       model-name: deepseek-reasoner
       max-tokens: 32768
       temperature: 0.1
+      # 强制 gzip 压缩协商，规避 brotli 解压截断响应体的问题
+      custom-headers:
+        Accept-Encoding: gzip
       log-requests: true
       log-responses: true
       max-retries: 3
@@ -87,6 +93,9 @@ langchain4j:
       base-url: https://api.deepseek.com
       api-key: <Your API Key>
       model-name: deepseek-chat
+      # 强制 gzip 压缩协商，规避 brotli 解压截断响应体的问题
+      custom-headers:
+        Accept-Encoding: gzip
       log-requests: true
       log-responses: true
 

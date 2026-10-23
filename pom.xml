@@ -89,6 +89,15 @@
             <groupId>io.github.bonigarcia</groupId>
             <artifactId>webdrivermanager</artifactId>
             <version>6.1.0</version>
+            <exclusions>
+                <!-- brotli dec 0.1.2 on the classpath makes the HTTP stack advertise br;
+                     DeepSeek/EdgeOne then responds with brotli and the body is truncated
+                     to "{" (JsonEOFException). Excluding it keeps negotiation at gzip. -->
+                <exclusion>
+                    <groupId>org.brotli</groupId>
+                    <artifactId>dec</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!--  依赖cos 上传文件      -->
         <dependency>
