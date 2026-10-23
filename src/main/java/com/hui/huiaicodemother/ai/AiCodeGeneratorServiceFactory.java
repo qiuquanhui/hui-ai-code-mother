@@ -2,6 +2,8 @@ package com.hui.huiaicodemother.ai;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.hui.huiaicodemother.ai.guardrail.PromptSafetyInputGuardrail;
+import com.hui.huiaicodemother.ai.guardrail.RetryOutputGuardrail;
 import com.hui.huiaicodemother.ai.tools.ToolManager;
 import com.hui.huiaicodemother.config.ReasoningStreamingChatModelConfig;
 import com.hui.huiaicodemother.config.StreamingChatModelConfig;
@@ -108,6 +110,8 @@ public class AiCodeGeneratorServiceFactory {
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
                             toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
                     ))
+                    .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
+                    .outputGuardrails(new RetryOutputGuardrail())
                     .build();
             }
             // HTML 和多文件生成使用默认模型
@@ -119,6 +123,8 @@ public class AiCodeGeneratorServiceFactory {
                         .chatModel(chatModel)
                         .streamingChatModel(openAiStreamingChatModel)
                         .chatMemory(chatMemory)
+                        .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
+                        .outputGuardrails(new RetryOutputGuardrail())
                         .build();
             }
             default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR,
